@@ -2,8 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Sandbox.Common.ObjectBuilders.Definitions;
+using Sandbox.Definitions;
 using Sandbox.Game;
 using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Blocks;
+using Sandbox.Game.Entities.Cube;
 using VRage.Game;
 
 namespace ClientPlugin.Inventory;
@@ -11,18 +15,39 @@ namespace ClientPlugin.Inventory;
 public enum InventorySectionKind
 {
     UnifiedCargo,
+    Weapons,
+    PowerProducers,
+    Refineries,
+    Assemblers,
+    GasSystems,
+    ShipTools,
+    SafetySystems,
     DefinitionFallback
 }
 
 public enum InventoryRoleKind
 {
     GeneralCargo,
+    Ammunition,
+    Fuel,
+    ProductionInput,
+    ProductionOutput,
+    GasGeneratorFuel,
+    Bottles,
+    ToolInventory,
+    ParachuteMaterial,
     Unknown
 }
 
 public enum InventoryDiscoverySource
 {
     CargoContainer,
+    WeaponDefinition,
+    ReactorDefinition,
+    ProductionDefinition,
+    GasGeneratorDefinition,
+    ShipToolDefinition,
+    ParachuteDefinition,
     ConstraintFallback
 }
 
@@ -47,6 +72,9 @@ public readonly struct InventorySectionKey : IEquatable<InventorySectionKey>
 
     public static InventorySectionKey UnifiedCargo =>
         new(InventorySectionKind.UnifiedCargo, default, -1, string.Empty);
+
+    public static InventorySectionKey Semantic(InventorySectionKind kind) =>
+        new(kind, default, -1, string.Empty);
 
     public static InventorySectionKey DefinitionFallback(
         MyDefinitionId blockDefinitionId,
@@ -132,20 +160,161 @@ internal static class InventoryDescriptorFactory
                                 (MyInventoryFlags.CanSend | MyInventoryFlags.CanReceive);
         var isUnifiedCargo = owner is MyCargoContainer && inventory.Constraint == null && canSendAndReceive;
 
-        var role = new InventoryRoleDescriptor(
-            isUnifiedCargo ? InventoryRoleKind.GeneralCargo : InventoryRoleKind.Unknown,
-            itemId => inventory.Constraint?.Check(itemId) ?? true);
+        if (isUnifiedCargo)
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.UnifiedCargo,
+                InventoryDiscoverySource.CargoContainer,
+                new InventoryRoleDescriptor(InventoryRoleKind.GeneralCargo, itemId => AcceptsLive(inventory, itemId)),
+                constraintSignature);
 
-        return new InventoryDescriptor(
+        if (owner.BlockDefinition is MyWeaponBlockDefinition weaponBlock &&
+            MyDefinitionManager.Static.TryGetWeaponDefinition(weaponBlock.WeaponDefinitionId, out var weapon))
+        {
+            var ammunition = new HashSet<MyDefinitionId>(weapon.AmmoMagazinesId ?? Array.Empty<MyDefinitionId>());
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.Weapons),
+                InventoryDiscoverySource.WeaponDefinition,
+                new InventoryRoleDescriptor(
+                    InventoryRoleKind.Ammunition,
+                    itemId => ammunition.Contains(itemId) && AcceptsLive(inventory, itemId)),
+                constraintSignature);
+        }
+
+        if (owner.BlockDefinition is MyReactorDefinition reactor)
+        {
+            var fuels = new HashSet<MyDefinitionId>((reactor.FuelInfos ?? Array.Empty<MyReactorDefinition.FuelInfo>())
+                .Select(info => info.FuelId));
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.PowerProducers),
+                InventoryDiscoverySource.ReactorDefinition,
+                new InventoryRoleDescriptor(
+                    InventoryRoleKind.Fuel,
+                    itemId => fuels.Contains(itemId) && AcceptsLive(inventory, itemId)),
+                constraintSignature);
+        }
+
+        if (owner is MyProductionBlock production && owner.BlockDefinition is MyProductionBlockDefinition productionDefinition)
+        {
+            var isInput = ReferenceEquals(production.InputInventory, inventory);
+            var isOutput = ReferenceEquals(production.OutputInventory, inventory);
+            if (isInput || isOutput)
+            {
+                var kind = owner is MyRefinery
+                    ? InventorySectionKind.Refineries
+                    : owner is MyAssembler
+                        ? InventorySectionKind.Assemblers
+                        : InventorySectionKind.DefinitionFallback;
+                var constraint = isInput
+                    ? productionDefinition.InputInventoryConstraint
+                    : productionDefinition.OutputInventoryConstraint;
+                return CreateSemantic(
+                    owner,
+                    inventoryIndex,
+                    inventory,
+                    kind == InventorySectionKind.DefinitionFallback
+                        ? InventorySectionKey.DefinitionFallback(owner.BlockDefinition.Id, inventoryIndex, constraintSignature)
+                        : InventorySectionKey.Semantic(kind),
+                    InventoryDiscoverySource.ProductionDefinition,
+                    new InventoryRoleDescriptor(
+                        isInput ? InventoryRoleKind.ProductionInput : InventoryRoleKind.ProductionOutput,
+                        itemId => (constraint?.Check(itemId) ?? AcceptsLive(inventory, itemId)) &&
+                                  AcceptsLive(inventory, itemId)),
+                    constraintSignature);
+            }
+        }
+
+        if (owner is MyGasGenerator && owner.BlockDefinition is MyOxygenGeneratorDefinition)
+        {
+            return new InventoryDescriptor(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.GasSystems),
+                new[]
+                {
+                    new InventoryRoleDescriptor(
+                        InventoryRoleKind.GasGeneratorFuel,
+                        itemId => !IsBottle(itemId) && AcceptsLive(inventory, itemId)),
+                    new InventoryRoleDescriptor(
+                        InventoryRoleKind.Bottles,
+                        itemId => IsBottle(itemId) && AcceptsLive(inventory, itemId))
+                },
+                constraintSignature,
+                InventoryDiscoverySource.GasGeneratorDefinition);
+        }
+
+        if (owner is MyGasTank)
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.GasSystems),
+                InventoryDiscoverySource.GasGeneratorDefinition,
+                new InventoryRoleDescriptor(
+                    InventoryRoleKind.Bottles,
+                    itemId => IsBottle(itemId) && AcceptsLive(inventory, itemId)),
+                constraintSignature);
+
+        if (owner.BlockDefinition is MyShipToolDefinition)
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.ShipTools),
+                InventoryDiscoverySource.ShipToolDefinition,
+                new InventoryRoleDescriptor(InventoryRoleKind.ToolInventory, itemId => AcceptsLive(inventory, itemId)),
+                constraintSignature);
+
+        if (owner.BlockDefinition is MyParachuteDefinition parachute)
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.SafetySystems),
+                InventoryDiscoverySource.ParachuteDefinition,
+                new InventoryRoleDescriptor(
+                    InventoryRoleKind.ParachuteMaterial,
+                    itemId => itemId == parachute.MaterialDefinitionId && AcceptsLive(inventory, itemId)),
+                constraintSignature);
+
+        return CreateSemantic(
             owner,
             inventoryIndex,
             inventory,
-            isUnifiedCargo
-                ? InventorySectionKey.UnifiedCargo
-                : InventorySectionKey.DefinitionFallback(owner.BlockDefinition.Id, inventoryIndex, constraintSignature),
-            new[] { role },
-            constraintSignature,
-            isUnifiedCargo ? InventoryDiscoverySource.CargoContainer : InventoryDiscoverySource.ConstraintFallback);
+            InventorySectionKey.DefinitionFallback(owner.BlockDefinition.Id, inventoryIndex, constraintSignature),
+            InventoryDiscoverySource.ConstraintFallback,
+            new InventoryRoleDescriptor(InventoryRoleKind.Unknown, itemId => AcceptsLive(inventory, itemId)),
+            constraintSignature);
+    }
+
+    private static InventoryDescriptor CreateSemantic(
+        MyCubeBlock owner,
+        int inventoryIndex,
+        MyInventory inventory,
+        InventorySectionKey section,
+        InventoryDiscoverySource source,
+        InventoryRoleDescriptor role,
+        string constraintSignature) =>
+        new(owner, inventoryIndex, inventory, section, new[] { role }, constraintSignature, source);
+
+    private static bool AcceptsLive(MyInventory inventory, MyDefinitionId itemId) =>
+        inventory.Constraint?.Check(itemId) ?? true;
+
+    private static bool IsBottle(MyDefinitionId itemId)
+    {
+        var type = (Type)itemId.TypeId;
+        return type != null &&
+               (typeof(MyObjectBuilder_GasContainerObject).IsAssignableFrom(type) ||
+                typeof(MyObjectBuilder_OxygenContainerObject).IsAssignableFrom(type));
     }
 
     internal static string GetConstraintSignature(MyInventoryConstraint constraint)

@@ -24,21 +24,21 @@ public static class ConfigStorage
         var path = ConfigFilePath;
         if (!File.Exists(path))
         {
-            return Config.Default;
+            return new Config();
         }
 
         var xmlSerializer = new XmlSerializer(typeof(Config));
         try
         {
             using (var streamReader = File.OpenText(path))
-                return (Config)xmlSerializer.Deserialize(streamReader) ?? Config.Default;
+                return (Config)xmlSerializer.Deserialize(streamReader) ?? new Config();
         }
         catch (Exception)
         {
             MyLog.Default.Warning($"{ConfigFileName}: Failed to read config file: {ConfigFilePath}");
         }
             
-        return Config.Default;
+        return new Config();
     }
         
 }

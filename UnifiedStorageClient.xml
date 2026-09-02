@@ -5,24 +5,19 @@
     <Id>4BD38E0B-20BC-4797-A011-44B59E928DA4</Id>
 
     <!-- GitHub repository ID -->
-    <RepoId>todo-github-user/project-name</RepoId>
+    <RepoId>OwendB1/se-unified-storage</RepoId>
 
     <!-- The name of your plugin that will appear in the plugin list -->
-    <FriendlyName>TODO UnifiedStorageClient</FriendlyName>
+    <FriendlyName>Unified Storage</FriendlyName>
 
     <!-- The author name that you want to appear in the plugin list -->
-    <Author>TODO Author Name</Author>
+    <Author>Owen de Bree</Author>
 
     <!-- Optional tooltip for the plugin in the plugin list -->
-    <Tooltip>TODO Short description</Tooltip>
+    <Tooltip>One projected ship-wide inventory with safe, definition-driven distribution.</Tooltip>
 
     <!-- Optional plugin description. If omitted, this will be the same as the Tooltip. 1000 characters max. -->
-    <Description>TODO Long description, multiple lines.
-
-        This text is shown on the plugin details panel in a scrollable text box.
-
-        You can use links here, players can click on them. For example, add a Discord invite.
-    </Description>
+    <Description>Replaces the grid-side terminal inventory with a unified view while keeping every item in its real container. Supports definition-derived modded inventories, placement policies, refinery priority, component targets, loadouts, cross-scope transfers, and a one-click vanilla fallback. Works with unmodified servers.</Description>
 
     <!-- Only source code in the Directory entries listed in SourceDirectories is compiled. Exclude any test projects or similar. -->
     <SourceDirectories>
@@ -40,12 +35,6 @@
     </NuGetReferences> 
     -->
 
-    <!-- Optional tag that specifies what dependencies this plugin has. Dependencies will be automatically enabled when this plugin is enabled.
-    <DependencyIds>
-      <Id>TODO ID of the plugin this one depends on</Id>
-    </DependencyIds> 
-    -->
-
     <!-- Optional tag that restricts the plugin to specific runtimes (case sensitive: NETFramework, NETCoreApp). List multiple, comma separated. If omitted, the runtime is detected from the compiled assembly.
     <Runtimes>NETFramework,NETCoreApp</Runtimes>
     -->
@@ -58,8 +47,8 @@
     <Hidden>true</Hidden>
     -->
 
-    <!-- The current plugin version's commit hash -->
-    <Commit>TODO Git commit hash</Commit>
+    <!-- Replace with the release commit when submitting this file to PluginHub. -->
+    <Commit>0000000000000000000000000000000000000000</Commit>
 
     <!-- Optional list of alternate versions of the plugin, use it for test or custom builds
     <AlternateVersions>

@@ -1,142 +1,98 @@
-using ClientPlugin.Settings;
-using ClientPlugin.Settings.Elements;
-using Sandbox.Graphics.GUI;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text;
-using ClientPlugin.Settings.Tools;
-using VRage.Input;
-using VRageMath;
-
+using ClientPlugin.Settings.Elements;
 
 namespace ClientPlugin;
 
-public enum ExampleEnum
+public enum DistributionPolicy
 {
-    FirstAlpha,
-    SecondBeta,
-    ThirdGamma,
-    AndTheDelta,
-    Epsilon
+    ExistingStackFirst,
+    FillFirst,
+    EvenByItem
 }
 
-public class Config : INotifyPropertyChanged
+public enum InventoryScopeMode
 {
-    #region Options
+    MechanicalGroups,
+    ConveyorComponents,
+    BlockGroups
+}
 
-    // TODO: Define your configuration options and their default values
-    private bool toggle = true;
-    private int integer = 2;
-    private float number = 0.1f;
-    private string text = "Default Text";
-    private ExampleEnum dropdown = ExampleEnum.FirstAlpha;
-    private Color color = Color.Cyan;
-    private Color colorWithAlpha = new Color(0.8f, 0.6f, 0.2f, 0.5f);
-    private Binding keybind = new Binding(MyKeys.None);
+public sealed class Config : INotifyPropertyChanged
+{
+    private bool unifiedByDefault = true;
+    private DistributionPolicy defaultPolicy = DistributionPolicy.ExistingStackFirst;
+    private InventoryScopeMode scopeMode = InventoryScopeMode.MechanicalGroups;
+    private int transfersPerFrame = 4;
+    private int reachabilityQueriesPerFrame = 8;
+    private int refreshDebounceMilliseconds = 150;
+    private int acknowledgementTimeoutMilliseconds = 3000;
 
-    #endregion
+    public readonly string Title = "Unified Storage";
 
-    #region User interface
-
-    // TODO: Settings dialog title
-    public readonly string Title = "Config Demo";
-
-    // TODO: Settings dialog controls, one property for each configuration option
-        
-    [Separator("Some settings")]
-
-    [Checkbox(description: "Checkbox Tooltip")]
-    public bool Toggle
+    [Separator("Inventory terminal")]
+    [Checkbox(description: "Open the terminal inventory in Unified mode. The in-page toggle always restores vanilla mode.")]
+    public bool UnifiedByDefault
     {
-        get => toggle;
-        set => SetField(ref toggle, value);
+        get => unifiedByDefault;
+        set => SetField(ref unifiedByDefault, value);
     }
 
-    [Slider(-1f, 10f, 1f, SliderAttribute.SliderType.Integer, description: "Integer Slider Tooltip")]
-    public int Integer
+    [Dropdown(description: "Default placement policy used by deposits and Rebalance actions.")]
+    public DistributionPolicy DefaultPolicy
     {
-        get => integer;
-        set => SetField(ref integer, value);
+        get => defaultPolicy;
+        set => SetField(ref defaultPolicy, value);
     }
 
-    [Slider(-5f, 4.5f, 0.5f, SliderAttribute.SliderType.Float, description: "Float Slider Tooltip")]
-    public float Number
+    [Dropdown(description: "How grid-side projected owners are split. Item transfers still enforce live conveyor rules.")]
+    public InventoryScopeMode ScopeMode
     {
-        get => number;
-        set => SetField(ref number, value);
+        get => scopeMode;
+        set => SetField(ref scopeMode, value);
     }
 
-    [Textbox(description: "Textbox Tooltip")]
-    public string Text
+    [Separator("Work budgets")]
+    [Slider(1, 32, 1, SliderAttribute.SliderType.Integer, description: "Maximum inventory transfer requests issued in one simulation frame.")]
+    public int TransfersPerFrame
     {
-        get => text;
-        set => SetField(ref text, value);
+        get => transfersPerFrame;
+        set => SetField(ref transfersPerFrame, value);
     }
 
-    [Dropdown(description: "Dropdown Tooltip")]
-    public ExampleEnum Dropdown
+    [Slider(1, 64, 1, SliderAttribute.SliderType.Integer, description: "Maximum conveyor reachability queries evaluated in one simulation frame.")]
+    public int ReachabilityQueriesPerFrame
     {
-        get => dropdown;
-        set => SetField(ref dropdown, value);
+        get => reachabilityQueriesPerFrame;
+        set => SetField(ref reachabilityQueriesPerFrame, value);
     }
 
-    [Separator("More settings")]
-        
-    [Color(description: "RGB color")]
-    public Color Color
+    [Slider(0, 1000, 25, SliderAttribute.SliderType.Integer, description: "Delay used to coalesce replicated inventory changes before rebuilding the projection.")]
+    public int RefreshDebounceMilliseconds
     {
-        get => color;
-        set => SetField(ref color, value);
+        get => refreshDebounceMilliseconds;
+        set => SetField(ref refreshDebounceMilliseconds, value);
     }
 
-    [Color(hasAlpha: true, description: "RGBA color")]
-    public Color ColorWithAlpha
+    [Slider(500, 10000, 250, SliderAttribute.SliderType.Integer, description: "Maximum wait for replicated transfer or production state before an operation stops.")]
+    public int AcknowledgementTimeoutMilliseconds
     {
-        get => colorWithAlpha;
-        set => SetField(ref colorWithAlpha, value);
+        get => acknowledgementTimeoutMilliseconds;
+        set => SetField(ref acknowledgementTimeoutMilliseconds, value);
     }
 
-    [Keybind(description: "Keybind Tooltip - Unbind by right clicking the button")]
-    public Binding Keybind
-    {
-        get => keybind;
-        set => SetField(ref keybind, value);
-    }
-
-    [Button(description: "Button Tooltip")]
-    public void Button()
-    {
-        MyGuiSandbox.AddScreen(MyGuiSandbox.CreateMessageBox(
-            MyMessageBoxStyleEnum.Info,
-            buttonType: MyMessageBoxButtonsType.OK,
-            messageText: new StringBuilder("You clicked me!"),
-            messageCaption: new StringBuilder("Custom Button Function"),
-            size: new Vector2(0.6f, 0.5f)
-        ));
-    }
-
-    #endregion
-
-    #region Property change notification boilerplate
-
-    public static readonly Config Default = new Config();
-    public static readonly Config Current = ConfigStorage.Load();
+    public static readonly Config Default = new();
+    public static readonly Config Current = Settings.ConfigStorage.Load();
 
     public event PropertyChangedEventHandler PropertyChanged;
 
-    protected virtual void OnPropertyChanged(string propertyName)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string propertyName = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return false;
         field = value;
-        OnPropertyChanged(propertyName);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
     }
-
-    #endregion
 }

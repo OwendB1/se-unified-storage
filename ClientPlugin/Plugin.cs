@@ -1,9 +1,13 @@
 ﻿using System;
 using System.IO;
 using System.Threading;
+using System.ComponentModel;
 using ClientPlugin.Inventory;
+using ClientPlugin.Automation;
+using ClientPlugin.Profiles;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
+using ClientPlugin.Transfers;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
 using Shared.Config;
@@ -31,6 +35,12 @@ public class Plugin : IPlugin, ICommonPlugin
     public static Plugin Instance { get; private set; }
     private SettingsGenerator settingsGenerator;
     public MechanicalInventoryScopeScanner InventoryScopes { get; private set; }
+    public LocalProfileStore Profiles { get; private set; }
+    public TransferExecutor Transfers { get; private set; }
+    public RefinerySortExecutor RefinerySorts { get; private set; }
+    public ProductionQueueExecutor ProductionQueue { get; private set; }
+    public BottleRefillCoordinator BottleRefills { get; private set; }
+    public LocalAutomationService Automation { get; private set; }
     public long Tick { get; private set; }
     private static bool failed;
 
@@ -44,6 +54,8 @@ public class Plugin : IPlugin, ICommonPlugin
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     public void Init(object gameInstance)
     {
+        failed = false;
+        Tick = 0;
 #if DEBUG
         // Allow the debugger some time to connect once the plugin assembly is loaded
         Thread.Sleep(100);
@@ -56,12 +68,19 @@ public class Plugin : IPlugin, ICommonPlugin
 
         var configPath = Path.Combine(MyFileSystem.UserDataPath, ConfigFileName);
         config = PersistentConfig<PluginConfig>.Load(Log, configPath);
+        global::ClientPlugin.Config.Current.PropertyChanged += ClientConfigChanged;
 
         var gameVersion = MyFinalBuildConstants.APP_VERSION_STRING.ToString();
         Common.SetPlugin(this, gameVersion, MyFileSystem.UserDataPath);
         try
         {
             InventoryScopes = new MechanicalInventoryScopeScanner();
+            Profiles = new LocalProfileStore(Log);
+            Transfers = new TransferExecutor();
+            RefinerySorts = new RefinerySortExecutor();
+            ProductionQueue = new ProductionQueueExecutor();
+            BottleRefills = new BottleRefillCoordinator();
+            Automation = new LocalAutomationService(InventoryScopes, Profiles);
         }
         catch (Exception ex)
         {
@@ -83,7 +102,15 @@ public class Plugin : IPlugin, ICommonPlugin
     {
         try
         {
-            // TODO: Save state and close resources here, called when the game exists (not guaranteed!)
+            global::ClientPlugin.Config.Current.PropertyChanged -= ClientConfigChanged;
+            ConfigStorage.Save(global::ClientPlugin.Config.Current);
+            Profiles?.Save();
+            Automation?.Dispose();
+            BottleRefills?.Clear();
+            Transfers?.Clear("plugin unloaded");
+            RefinerySorts?.Clear();
+            ProductionQueue?.Clear();
+            config?.Dispose();
             // IMPORTANT: Do NOT call harmony.UnpatchAll() here! It may break other plugins.
         }
         catch (Exception ex)
@@ -93,7 +120,16 @@ public class Plugin : IPlugin, ICommonPlugin
 
         Instance = null;
         InventoryScopes = null;
+        Profiles = null;
+        Transfers = null;
+        RefinerySorts = null;
+        ProductionQueue = null;
+        BottleRefills = null;
+        Automation = null;
     }
+
+    private static void ClientConfigChanged(object sender, PropertyChangedEventArgs e) =>
+        ConfigStorage.Save(global::ClientPlugin.Config.Current);
 
     public void Update()
     {
@@ -119,8 +155,12 @@ public class Plugin : IPlugin, ICommonPlugin
 
     private void CustomUpdate()
     {
-        // TODO: Put your update code here. It is called on every simulation frame!
         PatchHelpers.PatchUpdates();
+        Transfers?.Update();
+        RefinerySorts?.Update();
+        ProductionQueue?.Update();
+        BottleRefills?.Update();
+        Automation?.Update(Tick);
     }
 
     // ReSharper disable once UnusedMember.Global
@@ -130,9 +170,4 @@ public class Plugin : IPlugin, ICommonPlugin
         MyGuiSandbox.AddScreen(Instance.settingsGenerator.Dialog);
     }
         
-    //TODO: Uncomment and use this method to load asset files
-    /*public void LoadAssets(string folder)
-    {
-
-    }*/
 }
