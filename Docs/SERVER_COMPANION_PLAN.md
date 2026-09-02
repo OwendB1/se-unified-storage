@@ -12,7 +12,7 @@ This is not a server-hosted port of ISY's programmable-block script. It has no p
 
 - Accept one high-level transfer intent instead of a separate network request for every physical stack allocation.
 - Rebuild the transfer plan from current authoritative server inventory state.
-- Validate player access, ship scope, conveyor routes and direction, sorter rules, tube sizes, inventory constraints, and capacity.
+- Validate player access, ship scope, conveyor routes and direction, sorter rules, tube sizes, inventory constraints, and capacity at least as strictly as the vanilla terminal would. This is an operator security benefit because the vanilla `TransferByUser` server handler does not itself enforce conveyor reachability.
 - Execute the resulting physical inventory transfers on the server game thread.
 - Return clear requested, moved, and rejected amounts with a failure reason.
 - Add server-side rate limits, configuration, logging, and telemetry.
@@ -35,13 +35,19 @@ This is not a server-hosted port of ISY's programmable-block script. It has no p
 - The companion does not continuously fill bottles, automatically drain idle assemblers, steal stock between loadouts, or toggle a block's conveyor, power, stockpile, or enabled state.
 - The companion does not restore rejected ISY features such as physical type-container sorting, automatic container naming, LCD output, or survival-kit stone crafting.
 
-## Capability handshake
+## Capability handshake and transport
+
+Use the vanilla secure mod-message channel exposed by `MyAPIGateway.Multiplayer` / `MyModAPIHelper.MyMultiplayer`. Register one fixed channel ID through `RegisterSecureMessageHandler`; every payload starts with a plugin magic value, message kind, and protocol version. Use reliable delivery for handshake, intents, settings, and final results. Optional progress updates may be unreliable. Enforce a small payload ceiling and page any profile snapshot too large to fit comfortably in one message.
+
+Do not define plugin-specific `[Event]` network methods. Mod messages ride vanilla events already present on both peers, so an unmodified server simply drops a client handshake sent to an unregistered channel. Plugin events would require compatible event tables on both sides and break the required client-only fallback. The secure handler's `senderSteamId` is transport-authenticated and is the only player identity accepted for a request.
 
 At connection or world readiness, the client detects whether the server exposes a compatible protocol version and which independent capabilities are enabled: batched transfers, shared settings, refinery automation, component-target automation, loadout automation, and explicit utility jobs.
 
+The client sends discovery when its world is ready, and the server also advertises to a joining player so a client whose plugin becomes ready late can still discover it.
+
 - If no compatible companion is present, the client continues using ordinary `MyInventory.TransferByUser` requests exactly as described in the client plan.
 - If it is present, the client may submit a single transfer intent and wait for its result before refreshing the unified view.
-- A capability loss or timeout falls back to the client-only path for later operations; the same in-flight operation must not be submitted twice.
+- A capability loss or handshake timeout falls back to the client-only path for later operations. An intent timeout has different semantics: its request ID is never replayed through either the companion or vanilla path. The client refreshes replicated state and reports **unknown outcome**; the server caches completed results for a bounded retention window and returns the cached result for a duplicate request ID instead of executing it again.
 - A server may expose settings persistence without enabling unattended automation, or authoritative automation without enabling batched cargo transfers. The client selects each path independently instead of treating the companion as one all-or-nothing flag.
 - Local profiles remain available until the player explicitly publishes one to, or adopts one from, the server. Once server automation owns a scope, the client stops its local maintain/sort loop for that scope and becomes a controller and status viewer.
 
@@ -69,7 +75,7 @@ Each management override identifies a block entity and, where relevant, inventor
 
 Do not persist inventory manifests, computed scarcity scores, the automatically discovered mod ore list, current stock, queue contents, capacities, conveyor reachability, or transient bottle/drain jobs. Rebuild those from authoritative live state. Store definition IDs as their full type/subtype pair; if a mod is temporarily absent, retain the unknown entry as inactive rather than deleting it. Ignore stale block-entity overrides after destruction and retain them only for the same orphan-retention window as their profile; never reattach them by display name.
 
-The dynamic per-scope profile store is separate from Magnetar PluginSdk's operator configuration. PluginSdk XML is appropriate for global operator switches, limits, and logging and already provides sparse atomic configuration writes. Ship profiles are player-facing runtime data with their own schema, revisions, permissions, and lookup keys, so they belong in a dedicated versioned data file under the plugin's world storage. Write it atomically after a short debounce and flush it on world save and plugin unload.
+The dynamic per-scope profile store is separate from Magnetar PluginSdk's operator configuration. PluginSdk XML is appropriate for global operator switches, limits, and logging and already provides sparse atomic configuration writes. Ship profiles are player-facing runtime data with their own schema, revisions, permissions, and lookup keys, so they belong in a dedicated versioned data file under the current world's storage. Write atomically after a short debounce. Never serialize live game objects off-thread: capture an immutable profile snapshot on the game thread during `MySession.Static.OnSavingCheckpoint`, then write that snapshot synchronously or hand only the snapshot to a writer. Flush the last snapshot from `MySession.OnUnloading`; `MySession.OnLoading` runs before entities exist, so load data there but bind anchors lazily as their grids appear.
 
 ### Profile identity across mechanical changes
 
@@ -80,8 +86,11 @@ A mechanical grid group has no permanent group entity ID, so do not key settings
 - On a merge where only one anchored profile is present, that profile applies to the combined group.
 - On a merge containing multiple anchored profiles, preserve every profile but pause unattended automation and ask an authorized client which profile should control the combined scope. Never merge targets or priority lists silently.
 - If an anchor grid is destroyed, keep the profile as orphaned recoverable data for an operator-configured retention period rather than rebinding it by name.
+- A blueprint paste or projector rebuild creates new entity IDs and therefore starts without the original profile by design; the old profile remains orphaned under the same retention rule.
 
 This gives predictable raid, split, docking, and rebuild behaviour without writing metadata into block names or custom data.
+
+Subscribe to grid split, merge, and ownership-change notifications and coalesce bursts before reevaluating `MyCubeGridGroups.Static.Mechanical.GetGroup(anchor)` on the game thread. The profile follows its explicit anchor rather than a hash of group membership. Pause ownership-based automation when the principal disappears from the anchor grid's `BigOwners`; event-driven reevaluation is preferred to periodic ownership polling.
 
 ### Settings protocol and permissions
 
@@ -99,7 +108,7 @@ UtilityJobProgress(request ID, state, counts)
 UtilityJobResult(request ID, completed/partial/rejected, details)
 ```
 
-The server resolves the authenticated player and current mechanical scope itself. Reading or changing settings requires normal terminal access plus the configured ownership/faction policy. A stale `base revision` is rejected with the current snapshot so concurrent editors cannot silently overwrite each other. Broadcast accepted changes only to clients currently authorized to see that scope.
+The server resolves the authenticated player from the secure message sender and resolves the current mechanical scope itself. Reading or changing settings requires normal terminal access plus the configured ownership/faction policy. A stale `base revision` is rejected with the current snapshot so concurrent editors cannot silently overwrite each other. Send accepted changes only to Steam IDs currently authorized to see that scope.
 
 ## Transfer intent
 
@@ -115,11 +124,27 @@ requested amount
 deposit policy, when applicable
 ```
 
+Use the same authenticated envelope and request-ID rules for explicit Rebalance, **Run now**, and utility-job intents. Validate a deposit policy against both the protocol-version enum and the operator's enabled-policy list; reject unknown or disabled values with a structured reason rather than silently choosing a default.
+
 The server derives the requesting player from the authenticated network context. It must not accept a claimed player identity, trusted candidate list, capacity, or access result from the client.
 
 Example: the client asks to withdraw `1,000 Steel Plate` from ship scope `X` into the player's character inventory. The server enumerates the accessible physical stacks in scope `X`, selects live reachable sources, executes as much as vanilla rules permit, and responds with something like `requested: 1,000; moved: 650; reason: destination full`.
 
 For a deposit, the concrete source is known but the destination is the ship scope. The server filters eligible inventories and applies `ExistingStackFirst`, `FillFirst`, or `EvenByItem` to choose physical destinations.
+
+## Authoritative validation
+
+Local server mutations bypass the `[Server(ValidationType.Access | ValidationType.Ownership)]` guards that protect remotely invoked vanilla requests. The companion must reproduce those rules explicitly before any player-initiated withdraw, deposit, Rebalance, **Run now**, or utility job:
+
+- Resolve the requester's identity from the authenticated Steam ID; never accept an identity from the payload.
+- For both source and destination blocks, require `GetUserRelationToOwner(identityId)` to be `Owner`, `FactionShare`, or `NoOwnership`, or the vanilla remote-admin **use terminals** right.
+- Require the requester's character to exist and be within `3 * MyConstants.DEFAULT_INTERACTIVE_DISTANCE` of any grid AABB in the endpoint block's logical group, or require that grid to be in the character's replication dependencies.
+- Enforce the vanilla same-logical-group maximum separation of 2 km between the owning blocks.
+- Do not inherit vanilla's destination-side admin bypass unless the operator enables an explicit companion setting for it.
+- Validate conveyor direction and basic endpoint connectivity with `MyGridConveyorSystem.ComputeCanTransfer`, then use identity-aware `Reachable(..., playerId, itemId, predicate)` for player access, sorter filters, and `NeedsLargeTube`; never use `MySession.Static.LocalPlayerId` on a dedicated server.
+- Recheck inventory identity, scope membership, constraints, send/receive flags, capacity, and integral amounts immediately before mutation.
+
+Server-owned unattended automation has no nearby requesting character, so proximity cannot apply. It runs under the persisted profile principal's ownership relation and pauses when ownership changes. Operator configuration chooses whether `FactionShare` is sufficient or the principal must remain in the anchor and target grids' `BigOwners`. Admin bypass remains opt-in here as well.
 
 ## Authoritative execution
 
@@ -133,7 +158,9 @@ client intent
     -> return result
 ```
 
-The server rechecks each allocation immediately before mutation because production blocks, sorters, players, block destruction, or other plugins may alter inventory state during execution. Invalid allocations are skipped or replanned within a bounded amount of work. The result always reflects the amount actually moved.
+The server rechecks each allocation immediately before mutation because production blocks, sorters, players, block destruction, or other plugins may alter inventory state during execution. Server inventory changes are synchronous and authoritative, so this is a direct reread rather than a replication wait. Invalid allocations are skipped or replanned within a bounded amount of work. The result always reflects the amount actually moved.
+
+After validation, execute with `MyInventory.Transfer(source, destination, sourceItemId, destinationIndex, amount, spawn: false)` on the game thread. It reaches the same internal transfer, partial-fit, and same-inventory swap behavior as the client request path without spawning overflow. Never use local invocation as a substitute for the checks above.
 
 One intent may still require several physical game mutations. Batching reduces network chatter and centralizes validation; it does not remove the underlying conveyor graph or make the operation transactional.
 
@@ -144,15 +171,15 @@ The companion may run in either of two modes per capability:
 - **Persistence only:** the server stores and synchronizes the shared profile, while a connected client performs sorting or target maintenance through ordinary vanilla requests.
 - **Server owned:** one server scheduler evaluates the profile and performs bounded work on the game thread. Clients show its status and send settings or **Run now** commands but do not run a competing local loop.
 
-Server-owned refinery sorting uses the same loaded blueprint prerequisites/results and the same pinned, manual, and automatic-scarcity rules as the client plan. It filters the desired order per live refinery, verifies the profile principal still has the configured ownership/faction relationship to the anchor and machine, then reorders only that refinery's input. It does not redistribute ore unless a separate explicit Rebalance intent is submitted.
+Server-owned refinery sorting uses the same loaded blueprint prerequisites/results and the same pinned, manual, and automatic-scarcity rules as the client plan. It filters the desired order per live refinery, verifies the profile principal still has the configured ownership/faction relationship to the anchor and machine, then plans selection-sort-style pairwise swaps inside that refinery's input; same-inventory transfer is a swap or merge, never list insertion. All swaps for one refinery may run synchronously in one game tick, causing one queue rebuild on its next update, but the global per-tick swap budget still bounds large farms. Sorting does not redistribute ore unless a separate explicit Rebalance intent is submitted.
 
-Server-owned component maintenance uses the same component-to-blueprint resolution and `stock + queued` deficit accounting as the client. It appends whole blueprint runs only to eligible assembly-mode assemblers. It does not clear queues, switch modes, enable conveyors, or disassemble excess items. If the profile owner loses access, the anchor changes ownership, multiple profiles collide after a merge, or the chosen blueprint becomes unavailable, pause that profile and expose the reason to clients.
+Server-owned component maintenance uses the same component-to-blueprint resolution and `stock + queued` deficit accounting as the client. It appends whole blueprint runs only to assemblers in assembly mode with **Use conveyor system** enabled, cooperative/slave mode disabled, queue capacity below `MySession.Static.MaxProductionQueueLength`, and `CanUseBlueprint` true. An add is acknowledged only by rereading the queue content and observing the blueprint amount delta; the success broadcast and queue item ID are not proof because a rejected insert still broadcasts and insertion may merge with the last entry. It does not clear queues, switch modes, enable conveyors, or disassemble excess items. If the profile owner loses the configured ownership relation, the anchor changes ownership, multiple profiles collide after a merge, or the chosen blueprint becomes unavailable, pause that profile and expose the reason to clients.
 
 Server-owned Phase 2 loadout maintenance uses the same per-member or section-total target accounting and destination policies as the client. It respects all management overrides, sources deficits only from Unified Cargo, and returns excess only to Unified Cargo. It never drains one managed loadout to satisfy another. Missing definitions, insufficient stock, disconnected inventories, or full cargo produce a visible partial status rather than repeated aggressive retries.
 
 Do not add script-assisted refinery filling merely because the companion can move ore authoritatively. It remains behind the client plan's testing gate. If later justified, give it a separate capability and explicit per-profile opt-in; it must not be hidden inside refinery sorting or loadout maintenance.
 
-Inventory, production-queue, block-group, ownership, and mechanical-group changes mark a profile dirty. Coalesce those events and evaluate dirty profiles on a bounded scheduler; do not recreate a programmable-block-style full-grid polling cycle. Keep per-tick limits for profiles evaluated, physical inventory swaps, loadout transfers, and assembler queue additions. A save or shutdown flushes settings but does not need to persist live work queues because the game already persists refinery inventories and assembler queues.
+Inventory, production-queue, block-group, ownership, and mechanical-group changes mark a profile dirty. Coalesce those events and evaluate dirty profiles on a bounded scheduler; do not recreate a programmable-block-style full-grid polling cycle. Keep per-tick limits for profiles evaluated, conveyor reachability queries, physical inventory swaps, loadout transfers, and assembler queue additions. A save or shutdown flushes settings but does not need to persist live work queues because the game already persists refinery inventories and assembler queues.
 
 This mode is the actual solution to duplicate multi-client target batches and offline maintenance. The client-only implementation remains useful without it, but cannot elect a single durable automation owner on an unmodified server.
 
@@ -162,17 +189,17 @@ Bottle refill and assembler drain are request-driven jobs, not maintainers. The 
 
 ### Refill bottles
 
-The server independently resolves the requested scope, selected bottles, compatible non-Manual working fillers, ownership, constraints, and conveyor paths. Bottles stored on Manual blocks or in Reserved inventories are skipped as well. Process one stateful bottle at a time so transfers or stacking cannot make job identity ambiguous. Stage it into a filler, observe authoritative fill progress, and return it to its original inventory or an eligible Unified Cargo destination. A no-progress timeout returns the bottle when possible and records a per-bottle failure.
+The server independently resolves the requested scope, selected bottles, compatible non-Manual working fillers, ownership, constraints, and conveyor paths. Bottles stored on Manual blocks or in Reserved inventories are skipped as well. Initially select empty same-state bottle stacks; verify in game whether both filler types refill partially filled bottles before including them. Require a powered tank with gas (`FilledRatio > 0`) and `CanStore`, or a generator with ice or creative resources and `CanProduce`. Stage one stack into a filler, call `IMyGasTank.RefillBottles()` or `MyGasGenerator.RefillBottles()` explicitly on the game thread without toggling Auto-Refill, observe authoritative gas-level progress, and return it to its original inventory or an eligible Unified Cargo destination. A no-progress timeout returns the stack when possible and records a failure.
 
 ### Drain idle assemblers
 
-Immediately before touching each assembler, recheck that its queue is empty, it is not producing, the profile principal retains access, and the Manual override is absent. Drain only non-Reserved input and output inventories through the normal authoritative deposit planner. If a queue appears during the job, skip that assembler without modifying its mode or queue.
+Immediately before touching each assembler, recheck that it is in assembly mode, its queue is empty, it is not producing, the profile principal retains the configured ownership relation, and the Manual override is absent. Exclude disassembly-mode assemblers even with an empty queue because their output contains material deliberately staged for disassembly. Drain only non-Reserved input and output inventories through the normal authoritative deposit planner. If its mode changes or a queue appears during the job, skip that assembler without modifying its mode or queue.
 
 Both jobs use authenticated, idempotent request IDs, per-player and per-scope rate limits, maximum item/allocation counts, cancellation, progress, and structured partial results. Cancellation stops future steps but does not roll back transfers already accepted by the game.
 
 ## Shared planning logic
 
-The client and server should produce equivalent deposit allocations, refinery priorities, blueprint choices, component deficits, loadout deficits, exclusion filtering, and assembler assignments from equivalent snapshots. Keep these calculations pure and independent from either runtime. Share a small source project if the client and server target sets permit it; otherwise use versioned golden test vectors. Do not make the client depend on a server assembly or require the companion to load client UI types.
+The client and server should produce equivalent deposit allocations, refinery priorities, blueprint choices, component deficits, loadout deficits, exclusion filtering, and assembler assignments from equivalent snapshots. Keep these calculations pure and independent from either runtime. The shared source may depend on `VRage`, `VRage.Library`, and `VRage.Game` value and object-builder types such as `MyDefinitionId` and `MyFixedPoint`, but not `Sandbox.Game`, GUI types, session singletons, or either executor. Pass identities, definition data, and immutable snapshots into it; never read `MySession.Static.LocalPlayerId` or `LocalHumanPlayer` there. Maintain versioned golden test vectors for equivalent client/server results.
 
 The executor remains platform-specific:
 
@@ -187,27 +214,33 @@ Initial configuration should be limited to controls the server operator actually
 - Enable or disable shared scope profiles, server-owned refinery sorting, server-owned component maintenance, server-owned loadout maintenance, bottle-refill jobs, and assembler-drain jobs independently.
 - Maximum intents per player over a time window.
 - Maximum physical allocations per intent.
-- Maximum dirty profiles, refinery swaps, loadout transfers, assembler additions, utility jobs, and job allocations processed per update window.
+- Maximum dirty profiles, conveyor reachability queries, refinery swaps, loadout transfers, assembler additions, utility jobs, and job allocations processed per update window.
 - Enabled deposit policies.
+- Whether player-initiated admins may use the vanilla destination-check bypass; disabled by default.
+- Whether unattended automation accepts `FactionShare` or requires `BigOwners` membership.
 - Who may create, edit, share, bind, or delete owner/faction profiles and how long orphaned profiles are retained.
 - Logging or telemetry level.
 
-Expose these global operator controls through Magnetar PluginSdk configuration. Keep dynamic ship profiles out of that static configuration schema.
+Expose these global operator controls through a Magnetar PluginSdk `PluginConfig` property discoverable on the plugin entry point. Keep dynamic ship profiles out of that static configuration schema.
 
-Useful runtime statistics include accepted and rejected intents, profile loads and revision conflicts, active/paused automation profiles, refinery swaps, loadout transfers, assembler runs added, bottle and drain job outcomes, partial transfers, validation failures by reason, execution duration, dirty-profile backlog, and queue depth. Avoid recording item manifests, stock targets, or player cargo contents unless explicitly enabled for diagnostics.
+Useful runtime statistics include accepted and rejected intents, profile loads and revision conflicts, active/paused automation profiles, refinery swaps, loadout transfers, assembler runs added, bottle and drain job outcomes, partial transfers, validation failures by reason, execution duration, dirty-profile backlog, and queue depth. Log companion rejections in a structured form comparable to the server's failed-vanilla-validation list. Avoid recording item manifests, stock targets, or player cargo contents unless explicitly enabled for diagnostics.
 
 ## Implementation order
 
 1. Finish and validate the complete client-only transfer, exclusions, refinery-priority, and component-target paths.
-2. Define a versioned capability handshake with independent transfer, settings, refinery-automation, target-automation, loadout-automation, and utility-job flags.
-3. Add the versioned scope-profile store, explicit anchor binding, management overrides, permission checks, revisioned settings messages, and local-profile adoption flow.
-4. Add authoritative withdrawal with access, scope, and inventory validation.
-5. Add authoritative deposits using the three client placement policies.
-6. Add persistence-only refinery and component settings so multiple clients see one profile before enabling server mutation.
-7. Add server-owned refinery sorting with dirty-event debouncing, work limits, ownership-change pauses, and mixed refinery definitions.
-8. Add server-owned component maintenance with definition-derived blueprint resolution, queue accounting, integral rounding, and add-only semantics.
-9. Add persistence-only Phase 2 loadout rules, then server-owned loadout maintenance using the existing target and transfer planners.
-10. Add bounded explicit bottle-refill jobs, then idle-assembler-drain jobs.
-11. Add bounded queues, rate limits, timeouts, cancellation, duplicate-request protection, merge conflicts, and orphan retention.
-12. Add PluginSdk operator configuration, structured results, logging, and runtime statistics.
-13. Test companion absence, partial capability sets, version mismatch, disconnects, retries, stale stacks, destroyed blocks, sorter changes, full destinations, simultaneous editors, two automation clients, ownership/faction changes, server restart, profile split/merge, missing mods, utility-job interruption, and world unload.
+2. Define the fixed secure mod-message channel, magic/version envelope, payload limit, proactive and client-initiated handshake, and independent transfer, settings, refinery-automation, target-automation, loadout-automation, and utility-job flags.
+3. Implement request-ID idempotency and cached results before adding mutations; distinguish handshake fallback from an in-flight **unknown outcome**.
+4. Add the versioned scope-profile store, game-thread snapshots, lazy anchor binding, management overrides, permission checks, revisioned settings messages, and local-profile adoption flow.
+5. Implement the complete vanilla-equivalent player-intent validation boundary, including authenticated identity, both endpoint ownership/access checks, proximity, 2 km separation, explicit admin policy, and identity-aware conveyor reachability.
+6. Add authoritative withdrawal through validated `MyInventory.Transfer(..., spawn: false)` and structured partial results.
+7. Add authoritative deposits using the three client placement policies and reject unknown or disabled policy values.
+8. Add persistence-only refinery and component settings so multiple clients see one profile before enabling server mutation.
+9. Add swap-based server-owned refinery sorting with dirty-event debouncing, reachability and swap limits, ownership-change pauses, and mixed refinery definitions.
+10. Add server-owned component maintenance with definition-derived blueprint resolution, cooperative-assembler exclusion, maximum queue length, content-based queue accounting, integral rounding, and add-only semantics.
+11. Add persistence-only Phase 2 loadout rules, then server-owned loadout maintenance using the existing target and transfer planners.
+12. Add bounded explicit bottle-refill jobs with explicit refill calls and the partial-bottle verification gate, then assembly-only idle-assembler-drain jobs.
+13. Add bounded queues, rate limits, timeouts, cancellation, merge conflicts, event-driven split/merge/ownership handling, and orphan retention.
+14. Add PluginSdk operator configuration, structured results, comparable validation logging, and runtime statistics.
+15. Test companion absence, late discovery, partial capability sets, version mismatch, oversized/paged messages, disconnects, duplicate IDs, unknown outcomes, stale stacks, destroyed blocks, sorter and tube-size changes, full destinations, simultaneous editors, two automation clients, ownership/faction/admin-policy changes, server restart, profile split/merge, blueprint paste, missing mods, utility-job interruption, and world save/unload.
+
+Transfer tests must compare companion decisions with the vanilla client for both endpoint rights, proximity and replication-dependency access, 2 km separation, direction, sorters, tube size, constraints, capacity, partial fits, and admins. Automation tests must cover swap-based refinery ordering, content-based assembler queue acknowledgement, cooperative and disassembly exclusions, maximum queue length, ownership-change pauses, and bounded reachability work. Bottle tests must explicitly exercise empty and partially filled stacks in both tanks and generators; drain tests must race queue and mode changes. Persistence tests must cover save snapshots, unload flush, lazy load binding, split/merge bursts, destroyed anchors, and pasted grids.

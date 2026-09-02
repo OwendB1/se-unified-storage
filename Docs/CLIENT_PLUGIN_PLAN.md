@@ -10,11 +10,11 @@ Give every ship one virtual cargo inventory that combines items scattered across
 
 ISY's Inventory Manager is a source of useful behaviours, not an implementation base. A programmable block runs its inventory and production logic through a server-synchronized block. This plugin must instead remain fully functional as a client-only Pulsar plugin against an unmodified server, including official-style servers.
 
-Consequently, the client may read replicated definitions and inventory state, build local projections and plans, and send only the same access- and ownership-validated requests that the vanilla client can send. It must not call server-only mutation methods, assume a programmable block exists, require block-name tags, or depend on the optional companion. Shared persistence and unattended server execution are separate augmentations in [SERVER_COMPANION_PLAN.md](SERVER_COMPANION_PLAN.md).
+Consequently, the client may read replicated definitions and inventory state, build local projections and plans, and send only the same requests that the vanilla client can send. Keen's server handlers validate ownership, access, proximity, amounts, and destination constraints, but they do **not** validate the conveyor path for `TransferByUser`; matching the vanilla terminal's client-side reachability checks is therefore a hard security invariant of this plugin. It must not call server-only mutation methods, assume a programmable block exists, require block-name tags, or depend on the optional companion. Shared persistence and unattended server execution are separate augmentations in [SERVER_COMPANION_PLAN.md](SERVER_COMPANION_PLAN.md).
 
 ## First-pass scope
 
-- One virtual cargo per mechanical grid group: the main grid plus rotors, pistons, hinges, and attached subgrids.
+- One virtual cargo per mechanical grid group: the main grid plus rotors, pistons, hinges, suspensions, and attached subgrids.
 - Do not merge a docked ship with a station merely because connectors are locked. They remain distinct unified cargo scopes, and the user can transfer between them when the game permits it.
 - Read all accessible inventories normally shown in the terminal.
 - Use regular cargo-capable inventories as automatic unified-cargo deposit targets. Constrained functional inventories appear in their own block-type sections, not as general storage.
@@ -23,7 +23,7 @@ Consequently, the client may read replicated definitions and inventory state, bu
 - Provide component stock targets and add missing production to compatible assemblers without clearing or taking ownership of existing queues.
 - Preserve all physical inventories and vanilla destruction and raid behaviour.
 
-Separate conveyor networks, sorter rules, player-defined block groups, and custom semantics for mods that expose neither definitions nor useful inventory constraints come later.
+Separate conveyor-component scopes, player-defined block groups, and custom semantics for mods that expose neither definitions nor useful inventory constraints come later. Sorter direction, filters, and tube-size rules are always honored by first-pass transfers even though the UI does not yet expose each disconnected conveyor component as its own scope.
 
 After that first pass is stable, Phase 2 may add generic machine loadout targets plus explicit **Refill Bottles** and **Drain Idle Assemblers** actions. They are extensions of the same projection and transfer planner, not prerequisites for Unified Cargo.
 
@@ -40,14 +40,16 @@ In the unified view:
 - Later sections represent block types such as **Weapons**, **Power Producers**, **Refineries**, **Assemblers**, and **Ship Tools**. Only sections present in the current mechanical grid group are rendered.
 - Production types may have separate role grids under one type header, such as **Refinery Input** and **Refinery Output**, matching the visual separation in the reference UI.
 - Each type header displays its name and member count and has a **Rebalance** button. A pane-wide policy selector shows the policy that every button will use.
-- The vanilla **Storage**, **Energy**, **System**, and **All** filters control which sections are visible; they do not change section membership.
-- Each real inventory belongs to exactly one section and role in a given view, so totals are never duplicated.
+- The vanilla **Storage**, **Energy**, **System**, and **All** filters control which sections are visible; they do not change section membership. Derive known-section visibility from the plugin's semantic roles and use obsolete `InventoryOwnerType()` only as the display-filter fallback for unknown sections.
+- Each real item stack contributes to exactly one section and role in a given view, so totals are never duplicated. One physical inventory may advertise multiple non-overlapping roles when the game uses one slot for different item families, as gas generators do for ice and bottles.
 - Items are combined whenever the game itself considers their contents stackable; otherwise, they remain separate entries.
 - Mass, volume, search, amount dialogs, clicking, and drag-and-drop retain the normal Keen appearance where practical.
 
 Each type section shows only items relevant to that type. Weapons show compatible ammunition, fueled power producers show their fuels, refinery input shows valid process inputs, and refinery output shows valid process results. If matching blocks exist but their relevant inventories are empty, keep an empty inventory row with the appropriate constraint icon so it remains a usable drop target.
 
-Internally, the client uses one local-only "zombie" owner per pane scope with one synthetic `MyInventory` view per rendered section and role. It exists only to feed the stock GUI and is never registered, saved, replicated, or treated as real storage. Its GUI items retain mappings to the contributing real inventory stacks; transfers are intercepted before the game can treat a zombie inventory as an endpoint.
+The unified pane uses its own owner control, built from `MyGuiControlGrid` with the stock `Inventory` visual style and Keen's item-icon construction, rather than a synthetic `MyEntity` or `MyInventory`. Each grid row carries a plugin projection object that maps back to contributing real stacks. This avoids `MyInventory.AddItems`, which is a no-op on multiplayer clients, and prevents a fake inventory from leaking into replication, save code, `ContentsChanged`, or `MyInventory.OnTransferByUser` subscribers. Keep Keen's `MyGuiControlInventoryOwner` unchanged for the character pane and the vanilla fallback.
+
+Patch the terminal at the controller boundary: when **Unified** is active, prefix-and-skip the vanilla `MyTerminalInventoryController.Init` and `Refresh` path for that inventory page and mount the plugin controller on the same tab created by `MyGuiScreenTerminal.CreateInventoryPageControls`. The plugin controller still uses Keen's real owner control for the character pane and its own projected control for the grid pane. Switching the toggle cleanly unsubscribes and detaches one controller before activating the other without rebuilding unrelated terminal tabs. Mouse and gamepad handlers must consume plugin row objects and resolve concrete inventory endpoints themselves; none of Keen's transfer handlers may receive a projected row as `MyInventory` or `MyPhysicalInventoryItem`.
 
 The first implementation should defer additional stack-grouping optimizations. Keen's own stackability result is the general rule and source of truth; special cases should be introduced only when testing demonstrates that they are necessary.
 
@@ -91,6 +93,8 @@ These switches are independent because protecting a manually operated assembler,
 
 Do not build the unified UI around the obsolete `MyInventoryOwnerTypeEnum` or `InventoryOwnerType()` result. Keen's fallback classifies unknown entities as `Storage`, which would make an unfamiliar modded weapon or machine look like a safe cargo destination.
 
+Reuse the terminal's own inventory discovery rules instead of maintaining a second interpretation of scope. Enumerate `MyCubeGridGroups.Static.Mechanical.GetGroup(interactedGrid).Nodes`, call `MyGridConveyorSystem.GetGridInventories(grid, owners, identityId)` for each member grid, and subscribe to each grid conveyor system's `BlockAdded` and `BlockRemoved` events. This inherits the terminal's access and `ShowInInventory` filtering and gives mechanical split, merge, and suspension changes the same behavior as vanilla. Connector-docked logical grids remain separate mechanical scopes.
+
 Instead, describe every real inventory before rendering it:
 
 ```text
@@ -98,7 +102,8 @@ InventoryDescriptor
     owner entity ID
     block definition ID
     inventory index
-    block-type section and inventory role
+    block-type section
+    one or more inventory roles with item predicates
     accepted-item constraint signature
     discovery provider
 ```
@@ -142,7 +147,7 @@ Definition metadata determines why an inventory exists and which item types shou
 - **Weapons:** for a `MyWeaponBlockDefinition`, resolve `WeaponDefinitionId` through `MyDefinitionManager` and read `MyWeaponDefinition.AmmoMagazinesId`. This discovers vanilla and modded conventional ammunition without checking subtype strings. `MyGunBase` builds the live ammo inventory constraint from the same list.
 - **Reactors:** for a `MyReactorDefinition`, read every `FuelInfos[].FuelId`. This supports vanilla uranium and modded reactor fuels, including definitions with more than one required fuel. The reactor definition also builds its live whitelist from these IDs.
 - **Refineries and assemblers:** use `MyProductionBlockDefinition.InputInventoryConstraint` and `OutputInventoryConstraint`, which Keen derives from the loaded blueprint classes' prerequisites and results. Preserve input and output as different roles even though they share a type header.
-- **Other constrained systems:** use the same provider pattern for production inputs/outputs, gas generators, parachutes, tools, and future block families. Until a semantic provider exists, the generic constraint-based group remains safe and usable.
+- **Other constrained systems:** use the same provider pattern for production inputs/outputs, gas generators, parachutes, tools, and future block families. A gas generator's one physical input inventory exposes separate ore/fuel and bottle roles using its live `m_oreConstraint` and `m_containersConstraint`, while each stack is rendered only in its matching role. Until a semantic provider exists, the generic constraint-based group remains safe and usable.
 
 Never infer compatibility from an item already being present: an empty weapon or reactor still has a valid definition. Before moving anything, recheck the target's current constraint, `CanItemsBeAdded`, capacity, access, and conveyor path.
 
@@ -177,9 +182,9 @@ The UI displays the scope-wide order, while each real refinery receives only the
 
 Example: Gold is pinned first and live normalized output stocks make Nickel scarcer than Cobalt, which is scarcer than Iron. The section displays `Gold, Nickel, Cobalt, Iron`. A full Refinery containing all four inputs is sorted to that order; a specialist refinery that accepts only Nickel and Iron is sorted to `Nickel, Iron`. Unsupported entries are filtered, not treated as transfer failures.
 
-The physical sorter works only on a refinery's own input inventory. It compares the current stack sequence with the desired item-type sequence and, for each misplaced position, sends an ordinary `MyInventory.TransferByUser(input, input, itemId, destinationIndex)` request. Keen's server handler validates access and ownership and swaps or stacks the real items; the refinery then rebuilds its processing queue from the changed input order. The client must never call the server-only transfer implementation directly.
+The physical sorter works only on a refinery's own input inventory. Same-inventory transfers are swaps, not list insertions: when the destination contains an incompatible stack, `TransferByUser(input, input, itemId, destinationIndex)` swaps the two slots; stackable contents merge. Plan the desired order as selection-sort-style pairwise swaps, requiring at most `n - 1` swaps for `n` stacks, and recompute from the replicated order after every request. Keen's server handler validates access and ownership, applies the swap or merge, and marks the refinery queue for rebuild from the changed input order. The client must never call the server-only transfer implementation directly.
 
-Run at most one reorder request per refinery at a time and wait for replicated inventory state before planning the next swap. Debounce content changes, skip inventories that already match, and cap work per update so conveyor pulls cannot create a request storm. Closing the terminal does not cancel an already queued bounded pass, but client-only automatic sorting exists only while that client is connected and the plugin is active.
+Run at most one reorder request per refinery at a time and wait for replicated inventory state before planning the next swap. Debounce content changes, skip inventories that already match, and cap work per update because refineries with **Use conveyor system** enabled append newly pulled ore to the input and can otherwise create a request storm. Closing the terminal does not cancel an already queued bounded pass, but client-only automatic sorting exists only while that client is connected and the plugin is active.
 
 ## Component-target engine
 
@@ -195,7 +200,9 @@ deficit = max(0, target - stock - queued)
 
 Queue accounting uses each blueprint's actual result amount, including multi-result modded recipes. Co-products update the queued totals of their own component rows as well. Components and their targets are integral even though the game represents amounts with `MyFixedPoint`.
 
-When **Craft deficits** is clicked, or **Maintain targets** observes that stock is below the configured threshold, convert the remaining deficit into whole blueprint runs and append those runs to accessible assembly-mode assemblers that report `CanUseBlueprint`. Prefer the eligible assembler with the least estimated queued base-production time, then recalculate after every accepted batch. Send `InsertQueueItemRequest` and wait for the replicated queue change before issuing more work.
+When **Craft deficits** is clicked, or **Maintain targets** observes that stock is below the configured threshold, convert the remaining deficit into whole blueprint runs and append those runs only to accessible assemblers matching the terminal's own eligibility rules: assembly mode, **Use conveyor system** enabled, not cooperative/slave, and `CanUseBlueprint` true. Exclude an assembler whose replicated `CurrentState` is `InventoryFull` or `MissingItems` for the proposed work and show its other states (`Disabled`, `NotWorking`, `NotEnoughPower`) in the status column.
+
+Prefer the eligible assembler with the least estimated queued production time, using each blueprint's `BaseProductionTimeInSeconds / (MySession.Static.AssemblerSpeedMultiplier * (AssemblySpeed + UpgradeValues["Productivity"]))`, then recalculate after every accepted batch. Respect `MySession.Static.MaxProductionQueueLength`. Send `InsertQueueItemRequest`, but acknowledge success only when the replicated queue's amount for that blueprint increases; the success broadcast can occur even when nothing was inserted, and insertion at `-1` may merge with the last queue item and reuse its item ID. Track blueprint-and-amount deltas, never a queue event or queue item ID, before issuing more work.
 
 Example: the Steel Plate target is `10,000`, accessible inventories contain `7,200`, and existing assembler queues will produce `800`. The remaining deficit is `2,000`, so the client appends only the blueprint runs needed for those `2,000` plates. If stock is `9,200` and `800` are already queued, it appends nothing even though the on-hand value alone is below a `95%` start threshold.
 
@@ -203,7 +210,7 @@ The first implementation is deliberately add-only:
 
 - Never clear, move, shorten, or change the mode of an existing assembler queue.
 - Never toggle cooperative, repeating, conveyor, or power settings.
-- Skip disassembly-mode assemblers and allow per-block exclusions for machines the player is using manually.
+- Skip disassembly-mode and cooperative assemblers and allow per-block exclusions for machines the player is using manually.
 - Do not implement automatic disassembly merely because a target was lowered.
 - Keep one target batch in flight per scope and include all existing queue entries in the next deficit calculation.
 
@@ -211,7 +218,7 @@ These rules avoid claiming ownership of production work that may have been added
 
 ## Client-local settings and lifetime
 
-The client-only plugin persists refinery and production intent in its own local configuration, keyed by server/world identity and a stable anchor grid entity ID selected for the mechanical group. The profile stores only intent:
+The client-only plugin persists refinery and production intent in its own local configuration, keyed by a stable world identity plus an anchor grid entity ID selected for the mechanical group. Use the checkpoint session ID for a local world; in multiplayer use the server Steam ID plus the world name or checkpoint ID. Do not use mutable `MySession.Static.Name` alone. The profile stores only intent:
 
 ```text
 refinery mode, auto-sort toggle, pinned/manual ore definition IDs
@@ -253,18 +260,20 @@ Use the existing snapshot, target accounting, candidate filtering, placement pol
 
 ### Refill bottles
 
-Expose **Refill Bottles** in the Unified Cargo toolbar only when the scope contains a partially filled compatible bottle and a usable tank or generator. This starts a bounded job:
+Expose **Refill Bottles** in the Unified Cargo toolbar when the scope contains an empty compatible bottle stack and a usable tank or generator. Whether Keen refills partially filled bottles is an explicit in-game verification gate; include partial bottles only after that behavior is proven for both filler types. This starts a bounded job:
 
 1. Resolve non-Reserved bottles, their gas type, and compatible non-Manual filling inventories from loaded definitions and live constraints.
-2. Move each selected bottle through ordinary client-requested transfers to a reachable working filler.
-3. Wait for replicated bottle state to show full, failure, or a no-progress timeout.
-4. Return it to its original inventory when still valid; otherwise deposit it into Unified Cargo using the selected placement policy.
+2. Require a usable filler: a powered tank with `FilledRatio > 0` and `CanStore`, or a generator with ice or creative resources and `CanProduce`.
+3. Move one same-state bottle stack at a time through ordinary client-requested transfers to a reachable working filler.
+4. Explicitly invoke the same refill request as the terminal button: call `MyGasGenerator.SendRefillRequest` directly and use reflection or a Harmony reverse patch for the tank's private `MyGasTank.SendRefillRequest`. Never toggle Auto-Refill.
+5. Wait for the replicated stack gas level to change, report failure, or stop at a no-progress timeout.
+6. Return it to its original inventory when still valid; otherwise deposit it into Unified Cargo using the selected placement policy.
 
-Report each bottle as filled, returned unfilled, or stranded at the filler. Do not add continuous bottle-filling automation; the explicit job is the entire client feature.
+Report each selected bottle stack as filled, returned unfilled, or stranded at the filler. Do not add continuous bottle-filling automation; the explicit job is the entire client feature.
 
 ### Drain idle assemblers
 
-Add **Drain Idle Assemblers** to the Assemblers section. At execution time, an eligible assembler must have an empty queue, not be producing, and not be marked Manual. Move contents from its non-Reserved input and output inventories into Unified Cargo through the normal destination planner. Recheck idle state before every assembler so a newly queued machine is skipped rather than drained.
+Add **Drain Idle Assemblers** to the Assemblers section. At execution time, an eligible assembler must be in assembly mode, have an empty queue, not be producing, and not be marked Manual. Disassembly-mode assemblers are excluded even with an empty queue because their output contains stock deliberately staged for disassembly. Move contents from eligible non-Reserved input and output inventories into Unified Cargo through the normal destination planner. Recheck mode and idle state before every assembler so a changed or newly queued machine is skipped rather than drained.
 
 The action never clears a queue, changes assembler mode, or promises that every item will fit. Report skipped machines and partial transfers. There is no automatic idle cleanup loop.
 
@@ -316,6 +325,15 @@ Real inventories -> cargo snapshot -> aggregated rows -> unified GUI
        +---- native inventory transfers <- transfer plan
 ```
 
+### Vanilla-equivalent reachability gate
+
+No transfer request may leave the client until it passes the same two-stage reachability test as the vanilla terminal:
+
+1. `MyGridConveyorSystem.AppendReachableEndpoints(sourceEndpoint, playerId, results, itemId, predicate)` must include the candidate destination, applying player access, sorter direction and filters, and `NeedsLargeTube`.
+2. The plain conveyor-system `Reachable(from, to)` check must also pass.
+
+For character transfers, use the terminal's interacted block as the character-side conveyor endpoint, even when the source pane resolves to another mechanical group. Cache results only for the current operation, keyed at minimum by source endpoint and item definition, invalidate the cache on relevant grid or conveyor changes, and cap reachability queries per frame because the pathfinder takes a global lock. Recheck ownership, proximity, and reachability immediately before every request. This gate is mandatory on unmodified servers because their `TransferByUser` handler does not enforce conveyor connectivity.
+
 ### Unified cargo to a real inventory (withdrawal)
 
 The user drags an aggregated row from unified cargo to a concrete destination such as their character, a refinery, or a particular cargo container. The source selector expands that row into its contributing physical stacks and chooses enough reachable stacks to satisfy the requested amount. Prefer larger stacks initially to reduce the number of game transfer calls.
@@ -360,11 +378,11 @@ Example: stacks of identical components spread across ten containers appear as o
 
 A plan is based on a snapshot and is therefore only a proposal. Immediately before each allocation, the executor rechecks that the source still contains the item, the destination still has capacity, access is still valid, and the game still permits the transfer. A player, conveyor sorter, production block, block removal, or another plugin may have changed any of these after the GUI was drawn.
 
-Example: the user requests a transfer of `1,000` plates, but only `650` still fit when execution begins. The executor moves at most `650`, reports a partial result such as `650 / 1,000 moved: destination full`, and refreshes the view. It must never compensate by editing the synthetic inventory or inventing/removing item amounts.
+Example: the user requests a transfer of `1,000` plates, but only `650` still fit when execution begins. The executor moves at most `650`, reports a partial result such as `650 / 1,000 moved: destination full`, and refreshes the view. It must never compensate by editing the projected GUI or inventing/removing item amounts.
 
-Transfer allocations run through a small bounded queue so a large aggregate action does not issue hundreds of mutations in one frame. Real inventory change events are the source of truth for refreshing the virtual view; optimistic GUI changes must not be treated as committed state.
+Transfer allocations run through a small bounded queue so a large aggregate action does not issue hundreds of mutations or conveyor queries in one frame. Real inventory change events are the source of truth for refreshing the virtual view; optimistic GUI changes must not be treated as committed state. Every wait for replicated inventory or queue state has a timeout. Repeated timeouts or failed preflight checks stop the automatic operation instead of continuing to issue requests that the server will silently drop and record as failed validation.
 
-Each allocation is an ordinary client-requested game transfer, so a multi-stack operation is not atomic. If one allocation fails or transfers less than requested, the client rechecks the remaining plan against live inventory state and either continues with another valid allocation or reports the partial result.
+Each allocation calls `MyInventory.TransferByUser` normally so other plugins observing `MyInventory.OnTransferByUser` remain compatible; the plugin never raises that event itself. A multi-stack operation is not atomic. If one allocation fails or transfers less than requested, the client rechecks the remaining plan against live inventory state and either continues with another valid allocation or reports the partial result. If `CheckConstraint` rejects a locally planned allocation before a request is sent, treat it as a planner defect, log it, skip that allocation, and do not wait for replication that cannot arrive.
 
 ### Unified cargo to unified cargo
 
@@ -405,8 +423,14 @@ Dragging between two panes that resolve to the same mechanical grid group is not
 - Works against an unmodified server, including official-style environments.
 - Uses normal `MyInventory.TransferByUser` requests for every real transfer.
 - Uses normal `MyProductionBlock.InsertQueueItemRequest` calls for component production and same-inventory `TransferByUser` requests for refinery input ordering.
-- Relies on Keen's existing server handlers to validate and synchronize mutations; no plugin code or programmable block is required on the server.
-- Reproduces vanilla access, capacity, and conveyor checks before issuing transfers.
+- Relies on Keen's existing server handlers to validate ownership, access, proximity, amounts, constraints, and synchronize accepted mutations; no plugin code or programmable block is required on the server.
+- Treats the complete vanilla client reachability pair as a hard pre-request invariant because Keen's server handler does not validate conveyor connectivity, sorter rules, or tube size for `TransferByUser`.
+
+## Optional companion transport boundary
+
+Future companion discovery uses the vanilla mod-message channel exposed by `MyAPIGateway.Multiplayer` / `MyModAPIHelper.MyMultiplayer`, not plugin-defined network events. An unmodified server silently drops an unknown message-channel ID, preserving the client-only fallback without requiring matching event tables.
+
+Companion acknowledgements never replace replicated game state as the UI's source of truth. After a batched result, refresh from the real replicated inventories and queues. If a known companion times out on an in-flight request, do not replay that request through vanilla transfers: refresh state and report **unknown outcome**. Only later, newly initiated operations may use the client-only path, which prevents a slow companion response from double-moving items.
 
 ## Client-side transfer backend
 
@@ -496,35 +520,38 @@ The plugin should reduce:
 
 Definition compatibility maps and section membership are cached per session and invalidated when relevant blocks or scopes change. Inventory contents and capacity remain live data.
 
-Refinery scarcity scores, component deficits, and Phase 2 loadout deficits are recalculated from dirty inventory or queue snapshots on a debounce, not by scanning every inventory every frame. Definition-to-recipe indexes are built once per loaded definition set. Sorting, transfers, assembler additions, bottle jobs, and drain jobs all share bounded request queues and wait for replicated state before continuing.
+Refinery scarcity scores, component deficits, and Phase 2 loadout deficits are recalculated from dirty inventory or queue snapshots on a debounce, not by scanning every inventory every frame. Definition-to-recipe indexes are built once per loaded definition set. Sorting, transfers, assembler additions, bottle jobs, and drain jobs all share bounded request queues and wait for replicated state before continuing. Reachability uses a per-operation cache and a separate per-frame query budget because the conveyor pathfinder serializes on a global lock.
+
+Measure the first read-only unified pane on a representative large station before adding automation. Compare terminal-open time, control count, layout/update time, allocations, and frame time against vanilla: replacing hundreds of `MyGuiControlInventoryOwner` instances and their `ContentsChanged` subscriptions is the primary expected performance win.
 
 It does not remove Space Engineers' underlying conveyor graph. Hundreds of cargo containers still create hundreds of conveyor endpoints, and automated assemblers, refineries, and sorters continue using the vanilla conveyor system.
 
 ## Implementation order
 
-1. Build inventory descriptors, safe definition-based grouping, and generic constraint fallback.
-2. Replace the stock grid inventory panels with the read-only multi-section owner UI and provide the vanilla fallback toggle.
+1. Reuse the terminal's mechanical-scope enumeration and build inventory descriptors, safe definition-based grouping, multi-role inventories, and generic constraint fallback.
+2. Build the plugin-owned `MyGuiControlGrid`-based read-only multi-section owner UI, patch the terminal controller boundary, and provide the vanilla fallback toggle; do not create a zombie inventory.
 3. Aggregate items according to Keen's own stackability result, deferring additional stack optimizations.
 4. Add vanilla weapon and reactor consumable providers, then cover other constrained systems as needed.
 5. Add refinery and assembler input/output role sections.
 6. Add **Manage members**, persist the three exclusion settings, and enforce them in every bulk or automatic operation.
 7. Build definition-derived refinery recipe indexes and render the read-only automatic priority order, including modded and mixed-capability refineries.
-8. Add virtual-to-real withdrawal and real-to-virtual deposits.
-9. Add the pane policy selector, three placement policies, and a Rebalance button for every rendered type section.
-10. Add bounded client-requested physical refinery sorting, then auto-sort with debouncing and Manual exclusions.
-11. Add the Component Targets UI, stock and queued accounting, blueprint resolution, and local profile persistence.
-12. Add manual **Craft deficits**, then opt-in maintain mode after queue acknowledgement and race handling are tested.
-13. Add unified-to-unified transfers between distinct mechanical grid groups.
-14. Complete mouse, amount-dialog, search, drag-and-drop, and gamepad support.
-15. Add Phase 2 machine loadouts by reusing target accounting and the existing transfer planner.
-16. Add the explicit **Refill Bottles** bounded job.
-17. Add the explicit **Drain Idle Assemblers** bounded job.
-18. Add block-group and conveyor-component scopes.
-19. Consider knapsack-style packing only for a later explicit policy.
-20. Add integration and performance testing for grid splits, docking, cross-group transfers, sorters, full containers, concurrent users, and destroyed blocks.
+8. Build virtual-to-real withdrawal and real-to-virtual deposit planning without enabling mutations.
+9. Implement and test the mandatory vanilla reachability pair, interacted-block character proxy, operation cache, and per-frame query budget; only then enable `TransferByUser` execution.
+10. Add the pane policy selector, three placement policies, and a Rebalance button for every rendered type section.
+11. Add swap-based bounded refinery sorting, then auto-sort with pull-aware debouncing and Manual exclusions.
+12. Add the Component Targets UI, stock and queued accounting, blueprint resolution, assembler eligibility/status, and local profile persistence.
+13. Add manual **Craft deficits**, then opt-in maintain mode after content-based queue acknowledgement, queue limits, and race handling are tested.
+14. Add unified-to-unified transfers between distinct mechanical grid groups.
+15. Complete mouse, amount-dialog, search, drag-and-drop, and the substantial custom gamepad transfer/help paths.
+16. Add Phase 2 machine loadouts by reusing target accounting and the existing transfer planner.
+17. Add the explicit **Refill Bottles** bounded job with the refill request and partial-bottle verification gate.
+18. Add the explicit **Drain Idle Assemblers** bounded job with disassembly-mode exclusion.
+19. Add block-group and conveyor-component scopes.
+20. Consider knapsack-style packing only for a later explicit policy.
+21. Add integration and performance testing for grid splits, docking, cross-group transfers, sorters, full containers, concurrent users, destroyed blocks, timeouts, and repeated validation failures.
 
-Definition-compatibility tests must cover vanilla weapons, conventional modded weapons, vanilla and modded reactor fuels, empty inventories, identical display names with different definition IDs, multi-inventory production blocks, and unknown constrained blocks. UI and rebalance tests must cover type-section filtering, empty sections, input/output isolation, per-item candidate filtering, policy capture, repeated-click suppression, projected capacity, and partial execution.
+Definition-compatibility tests must cover vanilla weapons, conventional modded weapons, vanilla and modded reactor fuels, empty inventories, identical display names with different definition IDs, multi-inventory production blocks, one-index multi-role gas generators, and unknown constrained blocks. UI and rebalance tests must cover semantic filter mapping and unknown fallback, empty sections, input/output isolation, per-item candidate filtering, policy capture, repeated-click suppression, projected capacity, partial execution, the vanilla fallback toggle, and mouse/gamepad parity.
 
-Refinery tests must cover the actual physical input order, pinned and automatic priorities, live scarcity changes, stone or other multi-output recipes, modded ores and outputs, multiple refinery capability sets, repeated content-change events, rejected same-inventory requests, and a rebalance followed by re-sort. Component-target tests must cover integral rounding, blueprint result amounts greater than one, co-products, ambiguous recipes, uncraftable modded components, existing manual queues, disassembly-mode and excluded assemblers, target reductions, in-flight replication delay, and two clients observing the same deficit.
+Refinery tests must cover pairwise swap planning, merge behavior for stackable inputs, the actual physical input order, pinned and automatic priorities, live scarcity changes, stone or other multi-output recipes, modded ores and outputs, multiple refinery capability sets, repeated conveyor pulls and content-change events, rejected same-inventory requests, and a rebalance followed by re-sort. Component-target tests must cover integral rounding, blueprint result amounts greater than one, co-products, ambiguous recipes, uncraftable modded components, existing manual queues, cooperative and disassembly-mode assemblers, `CurrentState`, maximum queue length, false-positive success broadcasts, merged queue entries, target reductions, in-flight replication delay, and two clients observing the same deficit.
 
-Exclusion tests must prove that excluded inventories remain visible while every affected planner obeys their exact flags. Loadout tests must cover per-member and section-total targets, constrained and modded inventories, partial stock, excess returns, non-working blocks, and the prohibition on stealing from another loadout. Bottle and drain tests must cover disconnection, timeout, destroyed blocks, destination-full partial results, changed bottle state, and an assembler receiving a queue after the action was requested.
+Exclusion tests must prove that excluded inventories remain visible while every affected planner obeys their exact flags. Transfer tests must prove both reachability stages, sorter direction and filters, large-tube requirements, the interacted-block character proxy, cache invalidation, query budgeting, local constraint rejection, silent server timeout, and stop-on-repeated-failure behavior. Loadout tests must cover per-member and section-total targets, constrained and modded inventories, partial stock, excess returns, non-working blocks, and the prohibition on stealing from another loadout. Bottle tests must prove explicit refill requests, filler preconditions, same-state stack handling, empty bottles, changed bottle state, and whether partial bottles refill in both tanks and generators. Drain tests must cover disassembly exclusion and an assembler receiving a queue or mode change after the action was requested. Both utility suites also cover disconnection, timeout, destroyed blocks, and destination-full partial results.
