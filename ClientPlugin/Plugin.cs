@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Threading;
+using ClientPlugin.Inventory;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
 using HarmonyLib;
@@ -29,6 +30,7 @@ public class Plugin : IPlugin, ICommonPlugin
     public const string Name = "UnifiedStorage";
     public static Plugin Instance { get; private set; }
     private SettingsGenerator settingsGenerator;
+    public MechanicalInventoryScopeScanner InventoryScopes { get; private set; }
     public long Tick { get; private set; }
     private static bool failed;
 
@@ -57,6 +59,16 @@ public class Plugin : IPlugin, ICommonPlugin
 
         var gameVersion = MyFinalBuildConstants.APP_VERSION_STRING.ToString();
         Common.SetPlugin(this, gameVersion, MyFileSystem.UserDataPath);
+        try
+        {
+            InventoryScopes = new MechanicalInventoryScopeScanner();
+        }
+        catch (Exception ex)
+        {
+            Log.Critical(ex, "Inventory discovery initialization failed");
+            failed = true;
+            return;
+        }
 
         if (!PatchHelpers.HarmonyPatchAll(Log, new Harmony(Name)))
         {
@@ -80,6 +92,7 @@ public class Plugin : IPlugin, ICommonPlugin
         }
 
         Instance = null;
+        InventoryScopes = null;
     }
 
     public void Update()

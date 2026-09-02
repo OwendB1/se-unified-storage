@@ -93,7 +93,7 @@ These switches are independent because protecting a manually operated assembler,
 
 Do not build the unified UI around the obsolete `MyInventoryOwnerTypeEnum` or `InventoryOwnerType()` result. Keen's fallback classifies unknown entities as `Storage`, which would make an unfamiliar modded weapon or machine look like a safe cargo destination.
 
-Reuse the terminal's own inventory discovery rules instead of maintaining a second interpretation of scope. Enumerate `MyCubeGridGroups.Static.Mechanical.GetGroup(interactedGrid).Nodes`, call `MyGridConveyorSystem.GetGridInventories(grid, owners, identityId)` for each member grid, and subscribe to each grid conveyor system's `BlockAdded` and `BlockRemoved` events. This inherits the terminal's access and `ShowInInventory` filtering and gives mechanical split, merge, and suspension changes the same behavior as vanilla. Connector-docked logical grids remain separate mechanical scopes.
+Reuse the terminal's own inventory discovery rules instead of maintaining a second interpretation of scope. Enumerate `MyCubeGridGroups.Static.Mechanical.GetGroup(interactedGrid).Nodes`, then invoke each member grid's `MyGridConveyorSystem.GetGridInventories(interactedEntity, owners, identityId)` and subscribe to that conveyor system's `BlockAdded` and `BlockRemoved` events. Preserve the originally interacted entity argument: vanilla uses it to include that block even when `ShowInInventory` is false. This inherits the terminal's access and inventory-visibility filtering and gives mechanical split, merge, and suspension changes the same behavior as vanilla. Connector-docked logical grids remain separate mechanical scopes.
 
 Instead, describe every real inventory before rendering it:
 
