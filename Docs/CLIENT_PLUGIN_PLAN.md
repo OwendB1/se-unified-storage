@@ -23,7 +23,7 @@ Consequently, the client may read replicated definitions and inventory state, bu
 - Provide component stock targets and add missing production to compatible assemblers without clearing or taking ownership of existing queues.
 - Preserve all physical inventories and vanilla destruction and raid behaviour.
 
-Separate conveyor-component scopes, player-defined block groups, and custom semantics for mods that expose neither definitions nor useful inventory constraints come later. Sorter direction, filters, and tube-size rules are always honored by first-pass transfers even though the UI does not yet expose each disconnected conveyor component as its own scope.
+The implemented UI now exposes separate conveyor-component scopes and player-defined block groups. Custom semantics for mods that expose neither definitions nor useful inventory constraints remain deferred. Sorter direction, filters, and tube-size rules are always honored by transfers.
 
 After that first pass is stable, Phase 2 may add generic machine loadout targets plus explicit **Refill Bottles** and **Drain Idle Assemblers** actions. They are extensions of the same projection and transfer planner, not prerequisites for Unified Cargo.
 
@@ -33,6 +33,14 @@ A Pulsar client plugin replaces the existing grid-side inventory panels and UI w
 
 Each inventory pane resolves its selected block to a mechanical grid group and displays that group's unified cargo. The left and right panes may therefore show two different unified cargo scopes, such as a docked miner and its station.
 
+When multiple mechanical constructs or conveyor networks are available, show an independent scope dropdown below each pane's search bar. Reserve a dedicated row by moving the inventory viewport down and shortening it, keeping its bottom edge fixed. Hide the row on character panes and remove it completely in vanilla fallback.
+
+Each pane renders only its selected scope. Offer each **Whole construct**, its disconnected **Network N** entries (identified by a representative block), and terminal block-group views when that mode is configured. Order the accessed construct first and default to the network containing the accessed inventory hatch; otherwise default to that construct. Mark the accessed network and local construct explicitly. Distinguish duplicate ship names using deterministic ship numbers, with full names and construct entity IDs in tooltips. For the accessed network, prefer the hatch's own block name.
+
+Only inventories whose live conveyor endpoint has actual model ports participate in network entries. Do not show portless lockers, flight seats or similar blocks as singleton networks merely because they have an inventory or implement the conveyor-endpoint interface. A disconnected block with real ports remains a valid singleton network. Portless inventories remain available through **Whole construct**; this filter changes network presentation, not inventory contents.
+
+Keep selections by scope ID, independently per pane, through inventory refreshes, search/filter changes and character/grid switching. If the selected scope disappears, fall back to the accessed network/construct. Rescan network membership with the existing structural poll only for sessions that use network views; do not repeat graph traversal for every inventory-content change or per pane. Network grouping is a presentation aid, not an item-transfer guarantee. Two network entries must not contain the same physical inventory, even where opposing sorter branches converge. All concrete transfers still pass the existing vanilla-equivalent reachability gate.
+
 In the unified view:
 
 - Hundreds of per-block owner panels are replaced by one stock-looking owner panel containing several inventory-grid sections, matching the way vanilla renders multiple inventories inside one owner.
@@ -41,7 +49,7 @@ In the unified view:
 - Production types may have separate role grids under one type header, such as **Refinery Input** and **Refinery Output**, matching the visual separation in the reference UI.
 - Each type header displays its name and member count and has a **Rebalance** button. A pane-wide policy selector shows the policy that every button will use.
 - The vanilla **Storage**, **Energy**, **System**, and **All** filters control which sections are visible; they do not change section membership. Derive known-section visibility from the plugin's semantic roles and use obsolete `InventoryOwnerType()` only as the display-filter fallback for unknown sections.
-- Each real item stack contributes to exactly one section and role in a given view, so totals are never duplicated. One physical inventory may advertise multiple non-overlapping roles when the game uses one slot for different item families, as gas generators do for ice and bottles.
+- A physical stack contributes once to each matching configurable group and role. Groups may overlap intentionally; ship totals deduplicate physical inventories and automation never sums overlapping display rows. One physical inventory may advertise multiple non-overlapping roles, as gas generators do for ice and bottles.
 - Items are combined whenever the game itself considers their contents stackable; otherwise, they remain separate entries.
 - Mass, volume, search, amount dialogs, clicking, and drag-and-drop retain the normal Keen appearance where practical.
 
@@ -111,7 +119,7 @@ InventoryDescriptor
 The resolver order is:
 
 1. Known vanilla definition and runtime families, which also cover mods using those object builders.
-2. The live inventory's whitelist or blacklist constraint and send/receive flags.
+2. The live inventory's whitelist or blacklist constraint. Send/receive flags describe conveyor automation and help discovery; they must not reject otherwise valid manual transfers (for example, withdrawing fuel from a receive-only reactor).
 3. A safe unknown-definition fallback.
 
 Known inventories join a semantic block-type section such as Weapons, Power Producers, or Refineries. Their descriptors retain exact block definition, inventory index, role, and constraint information even when several definitions share a section. The section can therefore show the union of relevant items while calculating valid destinations separately for each item.
@@ -231,26 +239,38 @@ Derived recipe maps, automatic ore order, live stock, queues, inventory contents
 
 Local profiles are private to that player. Automatic work runs only while the player is connected, the plugin is active, and vanilla request validation grants access. The UI should label this state **Local automation** so users do not mistake it for offline or faction-wide control. The optional shared and unattended model is specified only in the server companion plan.
 
-## Phase 2 machine loadouts
+## Configurable inventory groups and generic loadouts
 
-Generalize ISY's special containers and its separate uranium and ice balancers into one definition-driven loadout system. A rule targets an exact block, a block definition, or a semantic section and one inventory role:
+The former fixed sections and machine-specific loadouts are now editable presets over one grouping and loadout system. This section supersedes fixed-section assumptions in the original first-pass scope above. The client remains standalone; no server capability is required.
+
+Each ship-local profile stores an ordered list of groups with stable IDs, display names, block selectors, optional inventory-role filters, and optional item-category/exact-item filters. Select blocks by all blocks, known family, object-builder type, exact block definition, terminal block-group name, specific block entity, or a loaded production blueprint's result item. Block selection, role and item filters are combined. Recipe-output selection identifies production blocks capable of that output; their input/output role and material filters remain separate choices.
+
+Save terminal group **names**, scoped to the current mechanical ship, never a snapshot of their block IDs. Resolve current members when displaying or planning; newly added members participate automatically. Equal names on connected but mechanically distinct ships are never merged. Missing or renamed groups show **Group not found** and pause rules. Specific-block selectors alone intentionally save entity IDs.
+
+The **Groups** button opens the ordered group list: new, edit/rename, duplicate, move up/down, delete, and restore defaults. Built-in cargo, weapons, power, refinery, assembler, gas, tool, safety, connectors and unknown-definition entries are presets. Unknown-definition presets retain exact definition/inventory/constraint separation. Editing groups only changes views; it does not transfer stock. Restore defaults resets built-in presets after confirmation while preserving custom groups and loadouts. Removing a referenced group retains the inactive rule for repair.
+
+Definition adapters remain responsible for ammo, fuel, blueprint and live inventory constraints. Display names never determine capabilities. Mixed/custom groups expose relevant production actions from their actual members. Ore-priority and component-target settings remain ship-wide; rebalance operates on the selected group's role inventories. Refill and idle-drain utilities are explicitly ship-wide.
+
+The pane-level **Loadouts** button opens all rules, including rules for groups with no current members; section shortcuts filter that list. The list provides new/edit/delete and explicit apply, with a separate editor so routing options do not crowd the inventory table. A rule stores:
 
 ```text
 LoadoutRule
-    target selector and inventory role
+    target group ID and inventory role
+    supply group ID (or None to disable supply)
+    excess-return group ID (or None to retain excess)
     item definition ID
     target mode: amount per member or total across members
     target amount
-    distribution policy for a section total
+    distribution policy
     maintain enabled
     include non-working blocks: false by default
 ```
 
-Phase 2 adds a **Loadouts** action beside **Manage members** on each applicable section header. Its editor chooses the member scope, relevant inventory role and item, per-member or section-total mode, amount, distribution policy, non-working-block behavior, and whether to maintain continuously. The section shows current deficit or excess and offers **Apply loadouts** without exposing the stored rule as a fake inventory item.
+Legacy exact-block and definition-specific loadout restrictions are retained during migration. Editing their quantity or policy keeps those restrictions; changing their target group replaces them with that group's selector. Schema version 1 migrates the former section targets to deterministic preset IDs, with Unified Cargo as the initial supply and excess-return group. Groups and new loadouts subsequently use stable IDs independent of display names and ordering.
 
 Only offer items accepted by the target inventories' loaded definitions and live constraints. This gives modded weapons, reactors, generators, tools, and other constrained blocks automatic support without dedicated uranium, ice, or ammunition code paths.
 
-For **amount per member**, evaluate every compatible, non-excluded inventory separately. For **total across members**, calculate one section deficit or excess and use the rule's stored distribution policy, initially copied from the pane selector. Missing stock is sourced only from Unified Cargo; excess is returned only to Unified Cargo. A loadout never steals from another loadout, silently drains a manually managed block, or toggles conveyor, enabled, stockpile, or power settings.
+For **amount per member**, evaluate every compatible, non-excluded physical inventory separately. For **total across members**, calculate one group deficit or excess and use the rule's distribution policy. Source deficits from the selected supply group and send excess to the selected return group. Exclude every same-item loadout target from supply and return candidates, including overlapping views. Two rules targeting the same item in the same inventory are both visibly blocked, regardless of list order or maintenance mode. Reserve source quantities across a batch, cap transfers against current target deficits/excesses, and revalidate saved rules, group membership, working state, exclusions and conveyor access before execution. No rule toggles conveyor, enabled, stockpile or power settings.
 
 Example: a Weapons rule requests `10 NATO_25x184mm` magazines per compatible member. Gatling weapons receive them, missile launchers are excluded by their constraints, and definition-derived modded magazines are offered as separate rules for the weapons that accept them. If Unified Cargo lacks enough stock, perform the valid partial transfer and show the remaining deficit.
 
@@ -416,7 +436,7 @@ Miner Cargo A -> Station Cargo B: 200
 
 If the connector disconnects, a sorter rejects steel plates, or only part of the route remains valid, the client follows the normal stale-state and partial-success rules. It transfers only the amount accepted by the game, refreshes both unified views, and reports any remainder.
 
-Dragging between two panes that resolve to the same mechanical grid group is not a transfer and should do nothing. The **Rebalance** button on Unified Cargo or a block-type section is the explicit way to redistribute items within that scope. Future scopes such as separate conveyor components or block groups use the same cross-scope transfer pipeline.
+Dragging between distinct configurable groups on the same mechanical ship uses the normal transfer pipeline, with self-inventory pairs skipped. Item and role filters constrain deposits. **Rebalance** explicitly redistributes within a selected group. Transfers between separate mechanical ships remain supported through valid vanilla conveyor paths. Changing or deleting a named group while work is queued cancels stale work; the next request resolves current membership.
 
 ## Deployment assumptions
 
@@ -480,7 +500,7 @@ Before executing a transfer, validate or reproduce the relevant vanilla rules:
 - Definition-derived consumable compatibility.
 - Integral item amounts.
 - Manual, Reserved, and destination exclusions captured in the operation snapshot.
-- Loadout source isolation: missing stock comes only from Unified Cargo and never from another managed loadout.
+- Loadout source isolation: missing stock comes from the configured supply group (Unified Cargo by default), excluding other loadouts' target inventories.
 - Bottle compatibility and fill progress before returning a staged bottle.
 - Empty queue and non-producing state immediately before draining each assembler.
 

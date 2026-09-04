@@ -134,7 +134,7 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
         manual = AddCheckbox("Manual block", new Vector2(-0.34f, 0.27f));
         reserved = AddCheckbox("Reserved / not counted", new Vector2(-0.08f, 0.27f));
         noDestination = AddCheckbox("Not a cargo destination", new Vector2(0.2f, 0.27f));
-        noDestination.Enabled = roles.Any(role => role.Section.Kind == InventorySectionKind.UnifiedCargo);
+        noDestination.Enabled = roles.SelectMany(role => role.Members).Any(member => member.Section.Kind == InventorySectionKind.UnifiedCargo);
         Controls.Add(Button("Apply", new Vector2(-0.1f, 0.34f), Apply));
         Controls.Add(Button("Close", new Vector2(0.1f, 0.34f), () => CloseScreen()));
         if (table.RowsCount > 0)
@@ -394,248 +394,188 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
 internal sealed class LoadoutScreen : UnifiedStorageScreen
 {
     private readonly MechanicalInventorySession session;
-    private readonly InventoryProjection projection;
     private readonly ScopeProfile profile;
-    private readonly InventorySectionKey section;
+    private readonly string groupId;
     private readonly Func<InventoryDescriptor, InventoryManagementFlags> getFlags;
     private readonly Action<TransferPlan> enqueue;
     private MyGuiControlTable rules;
-    private MyGuiControlCombobox targetKind;
-    private MyGuiControlCombobox targetValue;
-    private MyGuiControlCombobox role;
-    private MyGuiControlCombobox item;
-    private MyGuiControlCombobox policy;
-    private MyGuiControlTextbox amount;
-    private MyGuiControlCheckbox perMember;
-    private MyGuiControlCheckbox maintain;
-    private MyGuiControlCheckbox nonWorking;
-    private IReadOnlyList<InventoryDescriptor> members;
-    private IReadOnlyList<InventoryDescriptor> targetMembers = Array.Empty<InventoryDescriptor>();
-    private IReadOnlyList<MyDefinitionId> items;
+    private int nextStatusRefresh;
 
-    public LoadoutScreen(
-        MechanicalInventorySession session,
-        InventoryProjection projection,
-        ScopeProfile profile,
-        InventorySectionKey section,
-        Func<InventoryDescriptor, InventoryManagementFlags> getFlags,
-        Action<TransferPlan> enqueue)
-        : base("Machine loadouts")
+    public LoadoutScreen(MechanicalInventorySession session, InventoryProjection projection, ScopeProfile profile,
+        InventorySectionKey section, Func<InventoryDescriptor, InventoryManagementFlags> getFlags,
+        Action<TransferPlan> enqueue) : base("Loadouts")
     {
-        this.session = session;
-        this.projection = projection;
-        this.profile = profile;
-        this.section = section;
-        this.getFlags = getFlags;
-        this.enqueue = enqueue;
+        this.session = session; this.profile = profile; groupId = section.GroupId;
+        this.getFlags = getFlags; this.enqueue = enqueue;
     }
 
     protected override void CreateControls()
     {
-        var sectionRoles = projection.Roles.Where(candidate => candidate.Section.Equals(section)).ToArray();
-        members = sectionRoles.SelectMany(candidate => candidate.Members)
-            .GroupBy(candidate => (candidate.OwnerEntityId, candidate.InventoryIndex))
-            .Select(group => group.First()).ToArray();
-        items = MyDefinitionManager.Static.GetPhysicalItemDefinitions()
-            .Select(definition => definition.Id)
-            .Where(id => sectionRoles.Any(candidate => candidate.Members.Any(member =>
-                member.Roles.Any(memberRole => memberRole.Kind == candidate.Role && memberRole.Accepts(id)))))
-            .OrderBy(id => MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText,
-                StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(id => id.ToString(), StringComparer.Ordinal)
-            .ToArray();
-
         rules = new MyGuiControlTable
         {
-            Position = new Vector2(-0.4f, -0.33f),
-            Size = new Vector2(0.8f, 0.27f),
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            ColumnsCount = 6
+            Name = "LoadoutRules", Position = new Vector2(-0.36f, -0.31f), Size = new Vector2(0.72f, 0.4f),
+            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP, ColumnsCount = 5, VisibleRowsCount = 12
         };
-        rules.SetCustomColumnWidths(new[] { 0.16f, 0.16f, 0.24f, 0.14f, 0.18f, 0.12f });
-        foreach (var (index, name) in new[] { "Scope", "Role", "Item", "Target", "State", "Local" }
-                     .Select((name, index) => (index, name)))
-            rules.SetColumnName(index, new StringBuilder(name));
-        foreach (var record in profile.Loadouts.Where(candidate => candidate.Section == section.Kind))
+        rules.SetCustomColumnWidths(new[] { 0.22f, 0.24f, 0.16f, 0.28f, 0.1f });
+        foreach (var pair in new[] { "Group", "Item", "Target", "State", "Local" }.Select((name, index) => (name, index)))
+            rules.SetColumnName(pair.index, new StringBuilder(pair.name));
+        foreach (var record in profile.Loadouts.Where(rule => groupId == null || rule.GroupId == groupId))
         {
             var row = new MyGuiControlTable.Row(record);
-            row.AddCell(new MyGuiControlTable.Cell(record.TargetKind.ToString()));
-            row.AddCell(new MyGuiControlTable.Cell(record.Role.ToString()));
-            row.AddCell(new MyGuiControlTable.Cell(ParseDisplay(record.ItemDefinitionId)));
-            row.AddCell(new MyGuiControlTable.Cell(record.Amount.ToString(CultureInfo.InvariantCulture)));
-            row.AddCell(new MyGuiControlTable.Cell(LoadoutState(record)));
+            row.AddCell(new MyGuiControlTable.Cell(profile.Groups.FirstOrDefault(g => g.Id == record.GroupId)?.Name ?? "Group not found"));
+            row.AddCell(new MyGuiControlTable.Cell(MyDefinitionId.TryParse(record.ItemDefinitionId, out var id)
+                ? MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName : record.ItemDefinitionId));
+            row.AddCell(new MyGuiControlTable.Cell(record.Amount.ToString(CultureInfo.InvariantCulture) + (record.PerMember ? " each" : " total")));
+            row.AddCell(new MyGuiControlTable.Cell(LoadoutEngine.Status(session.Refresh().Scope, profile, record, getFlags)));
             row.AddCell(new MyGuiControlTable.Cell(record.Maintain ? "Yes" : "No"));
             rules.Add(row);
         }
         Controls.Add(rules);
-
-        targetKind = Combo(new Vector2(-0.38f, 0.0f), 0.18f,
-            Enum.GetValues(typeof(LoadoutTargetKind)).Cast<LoadoutTargetKind>().Select(value => value.ToString()));
-        targetKind.ItemSelected += RefreshTargets;
-        targetValue = Combo(new Vector2(-0.18f, 0.0f), 0.25f, Array.Empty<string>());
-        role = Combo(new Vector2(0.09f, 0.0f), 0.22f,
-            sectionRoles.Select(candidate => candidate.Role.ToString()).Distinct());
-
-        item = Combo(new Vector2(-0.38f, 0.07f), 0.32f,
-            items.Select(id => MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName));
-        amount = new MyGuiControlTextbox(new Vector2(-0.04f, 0.07f), "0", 18,
-            type: MyGuiControlTextboxType.Normal)
+        Controls.Add(Label("Targets, supply and excess returns use configurable inventory groups.", new Vector2(-0.36f, 0.16f)));
+        Controls.Add(Label("Overlapping target rules are paused. Missing groups never broaden scope.", new Vector2(-0.36f, 0.20f)));
+        Controls.Add(Button("New rule", new Vector2(-0.24f, 0.27f), () => Edit(null)));
+        Controls.Add(Button("Edit selected", new Vector2(0, 0.27f), () => { if (Selected != null) Edit(Selected); }));
+        Controls.Add(Button("Delete selected", new Vector2(0.24f, 0.27f), () =>
         {
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
-            Size = new Vector2(0.13f, 0.04f)
-        };
-        Controls.Add(amount);
-        policy = Combo(new Vector2(0.11f, 0.07f), 0.2f,
-            Enum.GetValues(typeof(DistributionPolicy)).Cast<DistributionPolicy>().Select(value => value.ToString()));
-
-        perMember = Check("Per member", new Vector2(-0.38f, 0.15f), true);
-        maintain = Check("Maintain locally", new Vector2(-0.13f, 0.15f), false);
-        nonWorking = Check("Include non-working", new Vector2(0.09f, 0.15f), false);
-        Controls.Add(Button("Add rule", new Vector2(-0.2f, 0.27f), AddRule));
-        Controls.Add(Button("Delete selected", new Vector2(-0.04f, 0.27f), DeleteRule));
-        Controls.Add(Button("Apply loadouts", new Vector2(0.13f, 0.27f), Apply));
-        Controls.Add(Button("Close", new Vector2(0.3f, 0.27f), () => CloseScreen()));
-        RefreshTargets();
-    }
-
-    private MyGuiControlCombobox Combo(Vector2 position, float width, IEnumerable<string> values)
-    {
-        var combo = new MyGuiControlCombobox(position, new Vector2(width, 0.04f),
-            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER);
-        var index = 0;
-        foreach (var value in values)
-            combo.AddItem(index++, value);
-        if (index > 0)
-            combo.SelectItemByIndex(0);
-        Controls.Add(combo);
-        return combo;
-    }
-
-    private MyGuiControlCheckbox Check(string label, Vector2 position, bool value)
-    {
-        var checkbox = new MyGuiControlCheckbox(position)
+            if (Selected == null) return;
+            profile.Loadouts.Remove(Selected); Save();
+        }));
+        Controls.Add(Button("Apply loadouts", new Vector2(-0.12f, 0.34f), () =>
         {
-            IsChecked = value,
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
-        };
-        Controls.Add(checkbox);
-        Controls.Add(Label(label, position + new Vector2(0.035f, 0f)));
-        return checkbox;
+            if (Plugin.Instance.Transfers.PendingCount != 0) return;
+            var plans = LoadoutEngine.Plan(session.Refresh(), profile, getFlags, groupId: groupId);
+            foreach (var plan in plans) enqueue(plan);
+            if (plans.Count == 0)
+                Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("No eligible transfers. Check rule state, supply, returns and capacity.", 4000);
+        }));
+        Controls.Add(Button("Close", new Vector2(0.12f, 0.34f), () => CloseScreen()));
     }
-
-    private void RefreshTargets()
+    public override bool Update(bool hasFocus)
     {
-        if (targetKind == null || targetValue == null)
-            return;
-        targetValue.ClearItems();
-        var kind = (LoadoutTargetKind)Math.Max(0, targetKind.GetSelectedKey());
-        IEnumerable<string> values = kind switch
+        var result = base.Update(hasFocus);
+        if (!hasFocus || rules == null || MySandboxGame.TotalGamePlayTimeInMilliseconds < nextStatusRefresh)
+            return result;
+        nextStatusRefresh = MySandboxGame.TotalGamePlayTimeInMilliseconds + 1000;
+        var scope = session.Refresh().Scope;
+        for (var i = 0; i < rules.RowsCount; i++)
         {
-            LoadoutTargetKind.Block => (targetMembers = members.GroupBy(member => member.OwnerEntityId)
-                .Select(group => group.First()).ToArray()).Select(member => member.Owner.DisplayNameText),
-            LoadoutTargetKind.BlockDefinition => (targetMembers = members.GroupBy(member => member.BlockDefinitionId)
-                .Select(group => group.First()).ToArray()).Select(member => member.BlockDefinitionId.SubtypeName),
-            _ => new[] { "Entire section" }
-        };
-        if (kind == LoadoutTargetKind.Section)
-            targetMembers = Array.Empty<InventoryDescriptor>();
-        var index = 0;
-        foreach (var value in values)
-            targetValue.AddItem(index++, value);
-        if (index > 0)
-            targetValue.SelectItemByIndex(0);
-    }
-
-    private void AddRule()
-    {
-        if (item.GetSelectedKey() < 0 || role.GetSelectedKey() < 0 ||
-            !decimal.TryParse(amount.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var target) || target < 0)
-            return;
-        var kind = (LoadoutTargetKind)Math.Max(0, targetKind.GetSelectedKey());
-        var selectedMember = targetMembers.ElementAtOrDefault((int)Math.Max(0, targetValue.GetSelectedKey()));
-        var roleValues = projection.Roles.Where(candidate => candidate.Section.Equals(section))
-            .Select(candidate => candidate.Role).Distinct().ToArray();
-        var record = new LoadoutRecord
-        {
-            TargetKind = kind,
-            TargetBlockEntityId = kind == LoadoutTargetKind.Block ? selectedMember?.OwnerEntityId ?? 0L : 0L,
-            TargetBlockDefinitionId = kind == LoadoutTargetKind.BlockDefinition
-                ? selectedMember?.BlockDefinitionId.ToString()
-                : null,
-            Section = section.Kind,
-            Role = roleValues.ElementAtOrDefault((int)role.GetSelectedKey()),
-            ItemDefinitionId = items[(int)item.GetSelectedKey()].ToString(),
-            Amount = target,
-            PerMember = perMember.IsChecked,
-            Maintain = maintain.IsChecked,
-            IncludeNonWorking = nonWorking.IsChecked,
-            Policy = (DistributionPolicy)Math.Max(0, policy.GetSelectedKey())
-        };
-        profile.Loadouts.Add(record);
-        Plugin.Instance.Profiles.Save();
-        RecreateControls(false);
-    }
-
-    private void DeleteRule()
-    {
-        if (rules.SelectedRow?.UserData is LoadoutRecord record)
-        {
-            profile.Loadouts.Remove(record);
-            Plugin.Instance.Profiles.Save();
-            RecreateControls(false);
+            var row = rules.GetRow(i);
+            row.GetCell(3).Text.Clear().Append(LoadoutEngine.Status(scope, profile, (LoadoutRecord)row.UserData, getFlags));
         }
+        return result;
     }
 
+    private LoadoutRecord Selected => rules.SelectedRow?.UserData as LoadoutRecord;
+    private void Edit(LoadoutRecord record) => MyGuiSandbox.AddScreen(new LoadoutRuleEditor(session, profile, record, groupId, value =>
+    {
+        var index = record == null ? -1 : profile.Loadouts.IndexOf(record);
+        if (index < 0) profile.Loadouts.Add(value); else profile.Loadouts[index] = value;
+        Save();
+    }));
+    private void Save()
+    {
+        Plugin.Instance.Profiles.Save(); session.MarkContentsDirty(); RecreateControls(false);
+    }
+}
+
+internal sealed class LoadoutRuleEditor : InventoryRuleEditor
+{
+    private readonly MechanicalInventorySession session;
+    private readonly ScopeProfile profile;
+    private readonly LoadoutRecord original;
+    private readonly string initialGroup;
+    private readonly Action<LoadoutRecord> save;
+    private MyGuiControlCombobox target, supply, returns, role, item, policy;
+    private MyGuiControlTextbox amount;
+    private MyGuiControlCheckbox each, maintain, nonWorking;
+    private MyGuiControlLabel validation;
+    private List<string> groupIds;
+    private List<MyDefinitionId> items;
+
+    public LoadoutRuleEditor(MechanicalInventorySession session, ScopeProfile profile, LoadoutRecord original,
+        string initialGroup, Action<LoadoutRecord> save) : base("Edit loadout")
+    {
+        this.session = session; this.profile = profile; this.original = original;
+        this.initialGroup = initialGroup; this.save = save;
+    }
+    protected override void CreateControls()
+    {
+        groupIds = new[] { string.Empty }.Concat(profile.Groups.Select(g => g.Id))
+            .Concat(new[] { original?.GroupId, original?.SupplyGroupId, original?.ReturnGroupId }
+                .Where(id => !string.IsNullOrEmpty(id))).Distinct().ToList();
+        string Name(string id) => id.Length == 0 ? "None (disabled)" : profile.Groups.FirstOrDefault(g => g.Id == id)?.Name ?? "Group not found";
+        var cargo = InventoryGroupRecord.DefaultId(InventorySectionKind.UnifiedCargo);
+        target = Combo("LoadoutTarget", "Target group", -0.36f, -0.24f, 0.22f, groupIds.Select(Name),
+            groupIds.IndexOf(original?.GroupId ?? initialGroup ?? profile.Groups.FirstOrDefault()?.Id ?? ""));
+        supply = Combo("LoadoutSupply", "Supply group", -0.12f, -0.24f, 0.22f, groupIds.Select(Name),
+            groupIds.IndexOf(original == null ? cargo : original.SupplyGroupId ?? ""));
+        returns = Combo("LoadoutReturns", "Excess return group", 0.12f, -0.24f, 0.24f, groupIds.Select(Name),
+            groupIds.IndexOf(original == null ? cargo : original.ReturnGroupId ?? ""));
+        role = Combo("LoadoutRole", "Inventory role", -0.36f, -0.10f, 0.22f,
+            Enum.GetNames(typeof(InventoryRoleKind)), (int)(original?.Role ?? InventoryRoleKind.GeneralCargo));
+        item = Combo("LoadoutItem", "Item / material", -0.12f, -0.10f, 0.48f, Array.Empty<string>());
+        amount = Text("LoadoutQuantity", "Target quantity", -0.36f, 0.04f, 0.22f,
+            (original?.Amount ?? 0m).ToString(CultureInfo.InvariantCulture), 18);
+        policy = Combo("LoadoutPolicy", "Distribution policy", -0.12f, 0.04f, 0.48f,
+            Enum.GetNames(typeof(DistributionPolicy)), (int)(original?.Policy ?? DistributionPolicy.EvenByItem));
+        each = Check("Per inventory", -0.34f, 0.14f, original?.PerMember ?? true);
+        maintain = Check("Maintain locally", -0.08f, 0.14f, original?.Maintain ?? false);
+        nonWorking = Check("Include non-working", 0.18f, 0.14f, original?.IncludeNonWorking ?? false);
+        Controls.Add(Label("None disables supply or excess returns. Target inventories never supply other rules.", new Vector2(-0.36f, 0.22f)));
+        validation = Label(original != null && original.TargetKind != LoadoutTargetKind.Section
+            ? "Legacy block/definition restriction retained unless target group changes." : "", new Vector2(-0.36f, 0.27f));
+        Controls.Add(validation);
+        Controls.Add(Button("Apply", new Vector2(-0.12f, 0.34f), Apply));
+        Controls.Add(Button("Cancel", new Vector2(0.12f, 0.34f), () => CloseScreen()));
+        target.ItemSelected += () => RefreshItems(true);
+        role.ItemSelected += () => RefreshItems(false);
+        RefreshItems(original == null);
+    }
+    private void RefreshItems(bool chooseRole)
+    {
+        var group = profile.Groups.FirstOrDefault(g => g.Id == groupIds[(int)target.GetSelectedKey()]);
+        var members = InventoryGroups.Resolve(session.Refresh().Scope, group, out _);
+        if (chooseRole)
+        {
+            var roles = members.SelectMany(m => m.Roles).Select(r => r.Kind)
+                .Where(r => group == null || group.AllRoles || group.Role == r).Distinct().ToArray();
+            if (roles.Length > 0) role.SelectItemByKey((long)roles[0], sendEvent: false);
+        }
+        var roleKind = (InventoryRoleKind)role.GetSelectedKey();
+        var restoringSavedItem = items == null && original != null;
+        var previous = items != null && item.GetSelectedKey() >= 0 ? items[(int)item.GetSelectedKey()].ToString() : original?.ItemDefinitionId;
+        items = MyDefinitionManager.Static.GetPhysicalItemDefinitions().Select(d => d.Id)
+            .Where(id => InventoryGroups.Accepts(group, id) && members.Any(m => m.Roles.Any(r => r.Kind == roleKind && r.Accepts(id))))
+            .OrderBy(Display, StringComparer.CurrentCultureIgnoreCase).ToList();
+        // Retain an unavailable saved item for repair, not an incompatible choice from another target/role.
+        if (restoringSavedItem && MyDefinitionId.TryParse(previous, out var saved) && !items.Contains(saved)) items.Add(saved);
+        item.ClearItems();
+        for (var i = 0; i < items.Count; i++) item.AddItem(i, Display(items[i]));
+        if (items.Count > 0) item.SelectItemByIndex(Math.Max(0, items.FindIndex(id => id.ToString() == previous)));
+    }
     private void Apply()
     {
-        foreach (var plan in LoadoutEngine.Plan(projection, profile, getFlags))
-            enqueue(plan);
-    }
-
-    private string LoadoutState(LoadoutRecord record)
-    {
-        if (!MyDefinitionId.TryParse(record.ItemDefinitionId, out var itemId))
-            return "Invalid item";
-        var candidates = members.Where(member => member.Roles.Any(candidate =>
-                candidate.Kind == record.Role && candidate.Accepts(itemId)) &&
-            (getFlags(member) & (InventoryManagementFlags.ManualBlock |
-                                 InventoryManagementFlags.ReservedInventory)) == 0 &&
-            (record.IncludeNonWorking || member.Owner is not MyFunctionalBlock functional || functional.IsWorking) &&
-            (record.TargetKind switch
-            {
-                LoadoutTargetKind.Block => member.OwnerEntityId == record.TargetBlockEntityId,
-                LoadoutTargetKind.BlockDefinition => string.Equals(
-                    member.BlockDefinitionId.ToString(), record.TargetBlockDefinitionId, StringComparison.Ordinal),
-                _ => true
-            })).ToArray();
-        if (candidates.Length == 0)
-            return "No members";
-        var target = TransferPlanner.Normalize(itemId, (MyFixedPoint)Math.Max(0m, record.Amount));
-        MyFixedPoint deficit;
-        MyFixedPoint excess;
-        if (record.PerMember)
+        if (target.GetSelectedKey() <= 0 || item.GetSelectedKey() < 0 ||
+            !decimal.TryParse(amount.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var quantity) ||
+            quantity < 0 || quantity > (decimal)MyFixedPoint.MaxValue)
         {
-            deficit = candidates.Aggregate(MyFixedPoint.Zero, (sum, member) =>
-                sum + MyFixedPoint.Max(target - member.Inventory.GetItemAmount(itemId), MyFixedPoint.Zero));
-            excess = candidates.Aggregate(MyFixedPoint.Zero, (sum, member) =>
-                sum + MyFixedPoint.Max(member.Inventory.GetItemAmount(itemId) - target, MyFixedPoint.Zero));
+            validation.Text = "Choose target group, item and a valid non-negative quantity."; return;
         }
-        else
+        var id = groupIds[(int)target.GetSelectedKey()];
+        var sameTarget = original?.GroupId == id;
+        var record = new LoadoutRecord
         {
-            var current = candidates.Aggregate(MyFixedPoint.Zero,
-                (sum, member) => sum + member.Inventory.GetItemAmount(itemId));
-            deficit = MyFixedPoint.Max(target - current, MyFixedPoint.Zero);
-            excess = MyFixedPoint.Max(current - target, MyFixedPoint.Zero);
-        }
-        return deficit > MyFixedPoint.Zero
-            ? $"Need {deficit}"
-            : excess > MyFixedPoint.Zero ? $"Excess {excess}" : "On target";
+            GroupId = id, SupplyGroupId = groupIds[(int)supply.GetSelectedKey()], ReturnGroupId = groupIds[(int)returns.GetSelectedKey()],
+            TargetKind = sameTarget ? original.TargetKind : LoadoutTargetKind.Section,
+            TargetBlockEntityId = sameTarget ? original.TargetBlockEntityId : 0,
+            TargetBlockDefinitionId = sameTarget ? original.TargetBlockDefinitionId : null,
+            Role = (InventoryRoleKind)role.GetSelectedKey(), ItemDefinitionId = items[(int)item.GetSelectedKey()].ToString(),
+            Amount = quantity, PerMember = each.IsChecked, Maintain = maintain.IsChecked,
+            IncludeNonWorking = nonWorking.IsChecked, Policy = (DistributionPolicy)policy.GetSelectedKey()
+        };
+        save(record); CloseScreen();
     }
-
-    private static string ParseDisplay(string value) =>
-        MyDefinitionId.TryParse(value, out var id)
-            ? MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName
-            : value;
+    private static string Display(MyDefinitionId id) => MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName;
 }
 
 internal sealed class RefineryPriorityScreen : UnifiedStorageScreen

@@ -4,6 +4,7 @@ using System.Linq;
 using ClientPlugin.Inventory;
 using ClientPlugin.Profiles;
 using ClientPlugin.Transfers;
+using Sandbox.Game;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using VRage;
@@ -13,143 +14,168 @@ namespace ClientPlugin.Automation;
 
 public static class LoadoutEngine
 {
-    public static IReadOnlyList<TransferPlan> Plan(
-        InventoryProjection projection,
-        ScopeProfile profile,
-        Func<InventoryDescriptor, InventoryManagementFlags> getFlags = null,
-        bool maintainedOnly = false)
+    public static IReadOnlyList<InventoryDescriptor> Targets(MechanicalInventoryScope scope, ScopeProfile profile,
+        LoadoutRecord rule, Func<InventoryDescriptor, InventoryManagementFlags> flags, out string error,
+        bool includeUnavailable = false)
     {
-        if (projection == null)
-            throw new ArgumentNullException(nameof(projection));
-        if (profile == null)
-            throw new ArgumentNullException(nameof(profile));
-        getFlags ??= _ => InventoryManagementFlags.None;
-        var cargo = projection.Roles.FirstOrDefault(role =>
-            role.Section.Kind == InventorySectionKind.UnifiedCargo &&
-            role.Role == InventoryRoleKind.GeneralCargo);
-        if (cargo == null)
-            return Array.Empty<TransferPlan>();
-        var result = new List<TransferPlan>();
-        foreach (var rule in profile.Loadouts)
+        var group = profile.Groups.FirstOrDefault(g => g.Id == rule.GroupId);
+        var members = InventoryGroups.Resolve(scope, group, out error);
+        if (error != null) return members;
+        if (!MyDefinitionId.TryParse(rule.ItemDefinitionId, out var item) || rule.Amount < 0 || rule.Amount > (decimal)MyFixedPoint.MaxValue)
         {
-            if (maintainedOnly && !rule.Maintain)
-                continue;
-            if (!MyDefinitionId.TryParse(rule.ItemDefinitionId, out var itemId) || rule.Amount < 0)
-                continue;
-            var role = projection.Roles.FirstOrDefault(candidate =>
-                candidate.Section.Kind == rule.Section && candidate.Role == rule.Role);
-            if (role == null)
-                continue;
-            var members = role.Members.Where(member =>
+            error = "Invalid item / amount";
+            return Array.Empty<InventoryDescriptor>();
+        }
+        if (!InventoryGroups.Accepts(group, item))
+        {
+            error = "Item excluded by group";
+            return Array.Empty<InventoryDescriptor>();
+        }
+        return members.Where(member => (includeUnavailable || Allowed(member, flags)) &&
+            member.Roles.Any(role => role.Kind == rule.Role && role.Accepts(item)) &&
+            (group.AllRoles || group.Role == rule.Role) &&
+            (includeUnavailable || rule.IncludeNonWorking || member.Owner is not MyFunctionalBlock functional || functional.IsWorking) &&
+            (rule.TargetKind switch
             {
-                var flags = getFlags(member);
-                return (flags & (InventoryManagementFlags.ManualBlock |
-                                 InventoryManagementFlags.ReservedInventory)) == 0 &&
-                       MatchesTarget(member, rule) &&
-                       member.Roles.Any(candidate => candidate.Kind == role.Role && candidate.Accepts(itemId)) &&
-                       (rule.IncludeNonWorking || member.Owner is not MyFunctionalBlock functional || functional.IsWorking);
-            }).ToArray();
-            if (members.Length == 0)
-                continue;
-            var sourceStack = cargo.Stacks.FirstOrDefault(stack => stack.DefinitionId == itemId);
-            var cargoSources = sourceStack?.Sources.Where(source => source.Descriptor != null &&
-                    (getFlags(source.Descriptor) & (InventoryManagementFlags.ManualBlock |
-                                                    InventoryManagementFlags.ReservedInventory)) == 0)
-                .ToArray() ?? Array.Empty<InventoryStackReference>();
-            var targetAmount = TransferPlanner.Normalize(itemId, (MyFixedPoint)rule.Amount);
-            if (rule.PerMember)
+                LoadoutTargetKind.Block => member.OwnerEntityId == rule.TargetBlockEntityId,
+                LoadoutTargetKind.BlockDefinition => member.BlockDefinitionId.ToString() == rule.TargetBlockDefinitionId,
+                _ => true
+            })).ToArray();
+    }
+
+    public static string Status(MechanicalInventoryScope scope, ScopeProfile profile, LoadoutRecord rule,
+        Func<InventoryDescriptor, InventoryManagementFlags> flags)
+    {
+        var members = Targets(scope, profile, rule, flags, out var error);
+        if (error != null) return error;
+        if (members.Count == 0) return "No eligible members";
+        foreach (var id in new[] { rule.SupplyGroupId, rule.ReturnGroupId }.Where(id => !string.IsNullOrEmpty(id)))
+        {
+            InventoryGroups.Resolve(scope, profile.Groups.FirstOrDefault(g => g.Id == id), out error);
+            if (error != null) return error;
+        }
+        if (profile.Loadouts.Where(other => !ReferenceEquals(other, rule) && other.ItemDefinitionId == rule.ItemDefinitionId)
+            .Any(other => Targets(scope, profile, other, flags, out _)
+                .Any(member => members.Any(target => target.Inventory == member.Inventory))))
+            return "Conflict: overlapping targets";
+        var item = MyDefinitionId.Parse(rule.ItemDefinitionId);
+        var target = TransferPlanner.Normalize(item, (MyFixedPoint)rule.Amount);
+        var current = members.Aggregate(MyFixedPoint.Zero, (sum, member) => sum + member.Inventory.GetItemAmount(item));
+        if (rule.PerMember ? members.Any(member => member.Inventory.GetItemAmount(item) < target) : current < target)
+            return "Needs supply";
+        if (rule.PerMember ? members.Any(member => member.Inventory.GetItemAmount(item) > target) : current > target)
+            return "Has excess";
+        return "On target";
+    }
+
+    public static IReadOnlyList<TransferPlan> Plan(InventoryProjection projection, ScopeProfile profile,
+        Func<InventoryDescriptor, InventoryManagementFlags> getFlags = null, bool maintainedOnly = false,
+        string groupId = null)
+    {
+        getFlags ??= _ => InventoryManagementFlags.None;
+        InventoryGroupRecord.Migrate(profile);
+        var scope = projection.Scope;
+        var result = new List<TransferPlan>();
+        var used = new Dictionary<(MyInventory, uint), MyFixedPoint>();
+        foreach (var rule in profile.Loadouts.Where(rule => (!maintainedOnly || rule.Maintain) &&
+                     (groupId == null || rule.GroupId == groupId)))
+        {
+            var status = Status(scope, profile, rule, getFlags);
+            if (status != "Needs supply" && status != "Has excess") continue;
+            var members = Targets(scope, profile, rule, getFlags, out _);
+            var item = MyDefinitionId.Parse(rule.ItemDefinitionId);
+            var amount = TransferPlanner.Normalize(item, (MyFixedPoint)rule.Amount);
+            // A rule must never borrow another loadout's target stock or return excess into it.
+            IEnumerable<MyInventory> ProtectedTargets() => profile.Loadouts
+                .Where(other => other.ItemDefinitionId == rule.ItemDefinitionId)
+                .SelectMany(other => Targets(scope, profile, other, getFlags, out _, includeUnavailable: true)).Select(member => member.Inventory);
+            var protectedTargets = new HashSet<MyInventory>(ProtectedTargets());
+            InventoryDescriptor[] Storage(string id)
             {
-                foreach (var member in members)
-                {
-                    var current = member.Inventory.GetItemAmount(itemId);
-                    if (current < targetAmount && cargoSources.Length > 0)
-                    {
-                        var plan = TransferPlanner.Pair(
-                            itemId,
-                            targetAmount - current,
-                            cargoSources,
-                            new[] { new DestinationAllocation(member, targetAmount - current) });
-                        if (plan.PlannedAmount > MyFixedPoint.Zero)
-                            result.Add(plan);
-                    }
-                    else if (current > targetAmount)
-                        AddExcessPlan(result, member, itemId, current - targetAmount, cargo, profile.Policy, getFlags);
-                }
+                if (string.IsNullOrEmpty(id)) return Array.Empty<InventoryDescriptor>();
+                var group = profile.Groups.FirstOrDefault(g => g.Id == id);
+                return InventoryGroups.Resolve(scope, group, out _).Where(member => Allowed(member, getFlags) &&
+                    !protectedTargets.Contains(member.Inventory) && InventoryGroups.Accepts(group, item) &&
+                    member.Roles.Any(role => (group.AllRoles || role.Kind == group.Role) && role.Accepts(item))).ToArray();
             }
-            else
+            var deficits = new List<DestinationAllocation>();
+            var surplus = new List<InventoryStackReference>();
+            var currentTotal = members.Aggregate(MyFixedPoint.Zero, (sum, member) => sum + member.Inventory.GetItemAmount(item));
+            var remainingExcess = MyFixedPoint.Max(currentTotal - amount, MyFixedPoint.Zero);
+            foreach (var member in members)
             {
-                var current = members.Aggregate(MyFixedPoint.Zero,
-                    (sum, member) => sum + member.Inventory.GetItemAmount(itemId));
-                if (current < targetAmount && cargoSources.Length > 0)
+                var current = member.Inventory.GetItemAmount(item);
+                if (rule.PerMember && current < amount)
+                    deficits.Add(new DestinationAllocation(member, MyFixedPoint.Min(amount - current, member.Inventory.ComputeAmountThatFits(item))));
+                var excess = rule.PerMember ? MyFixedPoint.Max(current - amount, MyFixedPoint.Zero) : MyFixedPoint.Min(current, remainingExcess);
+                if (!rule.PerMember) remainingExcess -= excess;
+                surplus.AddRange(Sources(new[] { member }, excess));
+            }
+            if (!rule.PerMember && currentTotal < amount)
+                deficits.AddRange(TransferPlanner.PlanDestinations(rule.Policy, item, amount - currentTotal,
+                    TransferPlanFactory.CreateDestinationSnapshots(item, members, getFlags)));
+            var guard = InventoryGroups.Guard(scope, profile, new[] { rule.GroupId, rule.SupplyGroupId, rule.ReturnGroupId });
+            var snapshot = Signature(rule);
+            string RelatedRules() => string.Join("\n", profile.Loadouts.Where(other => other.ItemDefinitionId == rule.ItemDefinitionId).Select(Signature));
+            var related = RelatedRules();
+            var targetInventories = new HashSet<MyInventory>(members.Select(member => member.Inventory));
+            bool CanContinue() => profile.Loadouts.Contains(rule) && (!maintainedOnly || rule.Maintain) &&
+                Signature(rule) == snapshot && RelatedRules() == related && guard() &&
+                protectedTargets.SetEquals(ProtectedTargets()) &&
+                targetInventories.SetEquals(Targets(scope, profile, rule, getFlags, out _).Select(member => member.Inventory)) &&
+                Status(scope, profile, rule, getFlags) != "Conflict: overlapping targets";
+            Add(TransferPlanner.Pair(item, deficits.Aggregate(MyFixedPoint.Zero, (sum, d) => sum + d.Amount),
+                Sources(Storage(rule.SupplyGroupId), MyFixedPoint.MaxValue), deficits));
+            var excessTotal = surplus.Aggregate(MyFixedPoint.Zero, (sum, s) => sum + s.SnapshotAmount);
+            Add(TransferPlanner.Pair(item, excessTotal, surplus,
+                TransferPlanner.PlanDestinations(rule.Policy, item, excessTotal,
+                    TransferPlanFactory.CreateDestinationSnapshots(item, Storage(rule.ReturnGroupId), getFlags))));
+
+            IReadOnlyList<InventoryStackReference> Sources(IEnumerable<InventoryDescriptor> from, MyFixedPoint maximum)
+            {
+                var sources = new List<InventoryStackReference>();
+                foreach (var member in from)
+                foreach (var stack in member.Inventory.GetItems().Where(stack => stack.Content.GetObjectId() == item))
                 {
-                    var destinations = TransferPlanFactory.CreateDestinationSnapshots(itemId, members, getFlags);
-                    var allocations = TransferPlanner.PlanDestinations(
-                        rule.Policy,
-                        itemId,
-                        targetAmount - current,
-                        destinations);
-                    var plan = TransferPlanner.Pair(
-                        itemId,
-                        targetAmount - current,
-                        cargoSources,
-                        allocations);
-                    if (plan.PlannedAmount > MyFixedPoint.Zero)
-                        result.Add(plan);
+                    used.TryGetValue((member.Inventory, stack.ItemId), out var reserved);
+                    var available = MyFixedPoint.Min(maximum, MyFixedPoint.Max(stack.Amount - reserved, MyFixedPoint.Zero));
+                    if (available <= MyFixedPoint.Zero) continue;
+                    var adjusted = stack;
+                    adjusted.Amount = available;
+                    sources.Add(new InventoryStackReference(member, adjusted));
+                    maximum -= available;
                 }
-                else if (current > targetAmount)
+                return sources;
+            }
+            void Add(TransferPlan plan)
+            {
+                if (plan.PlannedAmount <= MyFixedPoint.Zero) return;
+                plan.CanContinue = CanContinue;
+                plan.LimitAmount = allocation =>
                 {
-                    var excess = current - targetAmount;
-                    foreach (var member in members.OrderByDescending(candidate => candidate.Inventory.GetItemAmount(itemId)))
-                    {
-                        if (excess <= MyFixedPoint.Zero)
-                            break;
-                        var available = MyFixedPoint.Min(excess, member.Inventory.GetItemAmount(itemId));
-                        AddExcessPlan(result, member, itemId, available, cargo, profile.Policy, getFlags);
-                        excess -= available;
-                    }
+                    var depositing = targetInventories.Contains(allocation.DestinationInventory);
+                    var current = rule.PerMember
+                        ? (depositing ? allocation.DestinationInventory : allocation.Source.Inventory).GetItemAmount(item)
+                        : members.Aggregate(MyFixedPoint.Zero, (sum, member) => sum + member.Inventory.GetItemAmount(item));
+                    return MyFixedPoint.Max(depositing ? amount - current : current - amount, MyFixedPoint.Zero);
+                };
+                plan.GuardFailureMessage = "loadout group, membership or rule changed; reapply using current members";
+                foreach (var allocation in plan.Allocations)
+                {
+                    var key = (allocation.Source.Inventory, allocation.Source.ItemId);
+                    used.TryGetValue(key, out var previous);
+                    used[key] = previous + allocation.Amount;
                 }
+                result.Add(plan);
             }
         }
         return result;
     }
 
-    private static bool MatchesTarget(InventoryDescriptor member, LoadoutRecord rule) =>
-        rule.TargetKind switch
-        {
-            LoadoutTargetKind.Block => member.OwnerEntityId == rule.TargetBlockEntityId,
-            LoadoutTargetKind.BlockDefinition =>
-                string.Equals(member.BlockDefinitionId.ToString(), rule.TargetBlockDefinitionId,
-                    StringComparison.Ordinal),
-            _ => true
-        };
+    private static string Signature(LoadoutRecord rule) => string.Join("|", rule.GroupId, rule.SupplyGroupId,
+        rule.ReturnGroupId, rule.Role, rule.TargetKind, rule.TargetBlockEntityId, rule.TargetBlockDefinitionId,
+        rule.ItemDefinitionId, rule.Amount, rule.PerMember, rule.IncludeNonWorking, rule.Policy);
 
-    private static void AddExcessPlan(
-        ICollection<TransferPlan> plans,
-        InventoryDescriptor member,
-        MyDefinitionId itemId,
-        MyFixedPoint amount,
-        InventoryRoleProjection cargo,
-        DistributionPolicy policy,
-        Func<InventoryDescriptor, InventoryManagementFlags> getFlags)
-    {
-        var remaining = amount;
-        foreach (var item in member.Inventory.GetItems().Where(candidate =>
-                     candidate.Content.GetObjectId() == itemId))
-        {
-            if (remaining <= MyFixedPoint.Zero)
-                break;
-            var transferAmount = MyFixedPoint.Min(remaining, item.Amount);
-            var plan = TransferPlanFactory.Deposit(
-                member.Inventory,
-                item,
-                transferAmount,
-                cargo.Members,
-                policy,
-                getFlags);
-            if (plan.PlannedAmount <= MyFixedPoint.Zero)
-                continue;
-            plans.Add(plan);
-            remaining -= plan.RequestedAmount;
-        }
-    }
+    private static bool Allowed(InventoryDescriptor member, Func<InventoryDescriptor, InventoryManagementFlags> flags) =>
+        (flags(member) & (InventoryManagementFlags.ManualBlock | InventoryManagementFlags.ReservedInventory)) == 0;
 }

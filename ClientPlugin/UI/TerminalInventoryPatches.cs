@@ -5,6 +5,7 @@ using HarmonyLib;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Screens.Helpers;
 using Sandbox.Graphics.GUI;
+using VRage.Game;
 using VRage.Game.Entity;
 using VRage.Utils;
 using VRageMath;
@@ -149,21 +150,81 @@ internal static class TerminalInventoryBridge
 
     private static void EnsureToggle(State state)
     {
+        const float filterButtonCenterY = -0.30925f;
         state.Toggle = state.Parent.Controls.GetControlByName("UnifiedStorageToggle") as MyGuiControlCheckbox;
         if (state.Toggle != null)
             return;
         state.Toggle = new MyGuiControlCheckbox
         {
             Name = "UnifiedStorageToggle",
-            Position = new Vector2(-0.018f, -0.315f),
+            Position = new Vector2(0, filterButtonCenterY),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_CENTER,
             IsChecked = Config.Current.UnifiedByDefault
         };
+        var checkboxStyle = MyGuiControlCheckbox.GetVisualStyle(MyGuiControlCheckboxStyleEnum.Debug);
+        var toggleSize = MyGuiControlRadioButton
+            .GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll)
+            .NormalTexture.MinSizeGui;
+        // The checkbox DDS has more transparent padding than Keen's 69 px filter
+        // buttons. Scale its image so their visible bounds, rather than canvases, match.
+        var checkboxIconSize = toggleSize * new Vector2(1.1087f, 1.0625f);
+        state.Toggle.ApplyStyle(new MyGuiControlCheckbox.StyleDefinition
+        {
+            NormalCheckedTexture = MyGuiConstants.TEXTURE_NULL,
+            NormalUncheckedTexture = MyGuiConstants.TEXTURE_NULL,
+            HighlightCheckedTexture = MyGuiConstants.TEXTURE_NULL,
+            HighlightUncheckedTexture = MyGuiConstants.TEXTURE_NULL,
+            FocusCheckedTexture = MyGuiConstants.TEXTURE_NULL,
+            FocusUncheckedTexture = MyGuiConstants.TEXTURE_NULL,
+            CheckedIcon = SizedCheckboxIcon(
+                checkboxStyle.NormalCheckedTexture,
+                checkboxStyle.HighlightCheckedTexture,
+                checkboxStyle.FocusCheckedTexture,
+                checkboxIconSize),
+            UncheckedIcon = SizedCheckboxIcon(
+                checkboxStyle.NormalUncheckedTexture,
+                checkboxStyle.HighlightUncheckedTexture,
+                checkboxStyle.FocusUncheckedTexture,
+                checkboxIconSize),
+            SizeOverride = toggleSize
+        });
+        state.Toggle.Size = toggleSize;
         state.Toggle.SetToolTip("Use Unified Storage. Turn this off at any time to restore Keen's original inventory UI.");
         state.ToggleHandler = _ => ToggleChanged(state);
         state.Toggle.IsCheckedChanged += state.ToggleHandler;
+        var label = new MyGuiControlLabel
+        {
+            Name = "UnifiedStorageToggleLabel",
+            Position = new Vector2(0, filterButtonCenterY),
+            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_CENTER,
+            Text = "Unified Storage",
+            TextScale = 0.62f
+        };
+        // Native selectors use left anchors, filters use right anchors. Center the
+        // whole label/checkbox pair in their real gap, including when filters are hidden.
+        var gridButton = state.Parent.Controls.GetControlByName("LeftGridButton");
+        var filterButton = state.Parent.Controls.GetControlByName("LeftFilterAllButton");
+        var center = (gridButton.GetPositionAbsoluteTopRight().X + filterButton.GetPositionAbsoluteTopLeft().X) * 0.5f
+            - state.Parent.GetPositionAbsoluteCenter().X;
+        const float labelGap = 0.006f;
+        var right = center + (label.Size.X + labelGap + toggleSize.X) * 0.5f;
+        state.Toggle.Position = new Vector2(right, filterButtonCenterY);
+        label.Position = new Vector2(right - toggleSize.X - labelGap, filterButtonCenterY);
+        state.Parent.Controls.Add(label);
         state.Parent.Controls.Add(state.Toggle);
     }
+
+    private static MyGuiHighlightTexture SizedCheckboxIcon(
+        MyGuiCompositeTexture normal,
+        MyGuiCompositeTexture highlight,
+        MyGuiCompositeTexture focus,
+        Vector2 size) => new()
+    {
+        Normal = normal.Center.Texture,
+        Highlight = highlight.Center.Texture,
+        Focus = focus.Center.Texture,
+        SizePx = size * MyGuiConstants.GUI_OPTIMAL_SIZE
+    };
 
     private static void ToggleChanged(State state)
     {

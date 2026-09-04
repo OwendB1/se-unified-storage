@@ -5,14 +5,15 @@ Unified Storage is a Pulsar client plugin that replaces the grid side of Space E
 The current client implementation includes:
 
 - one view per mechanical grid group, plus optional conveyor-component and terminal block-group views;
-- stock-styled Unified Cargo, weapon, power, refinery, assembler, gas, tool, safety, and safe unknown-definition sections;
+- configurable inventory groups with editable cargo, weapon, power, refinery, assembler, gas, tool, safety, connector and safe unknown-definition presets;
+- dynamic named terminal-group selectors, block types/definitions, recipe outputs, inventory roles and material filters;
 - definition-derived support for vanilla and modded ammunition, reactor fuel, refinery recipes, production inventories, and other live constraints;
 - mouse and gamepad transfers, amount dialogs, search, filters, cross-grid-group transfers, and an in-page vanilla-UI fallback toggle;
 - Existing Stack First, Fill First, and Even By Item placement/rebalance policies;
 - UI-managed Manual, Reserved, and No Unified Cargo Destination exclusions;
 - automatic/manual refinery ore priority and bounded physical input sorting;
 - component production targets with add-only assembler queueing and opt-in local maintenance;
-- definition-driven machine loadouts, explicit empty-bottle refill jobs, and idle-assembler draining;
+- generic loadouts with target/supply/return groups, overlap conflict protection, explicit empty-bottle refill jobs, and idle-assembler draining;
 - bounded, acknowledgement-driven execution with access, capacity, constraint, and vanilla-equivalent conveyor reachability checks before every transfer.
 
 The plugin is fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. The prospective server-side augmentation is intentionally separate; see [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
@@ -30,7 +31,7 @@ Omit `RunPostBuildEvent=Never` when you want the template build to deploy the pl
 
 ## Safety boundary
 
-The projected UI never creates a synthetic game inventory and never mutates replicated state directly. Every transfer uses `MyInventory.TransferByUser` only after checking the concrete source and destination, current access, send/receive flags, live constraints, capacity, sorter-aware reachable endpoints, and the plain conveyor reachability result. Production is add-only; the plugin never clears or reorders a player's assembler queues.
+The projected UI never creates a synthetic game inventory and never mutates replicated state directly. Every transfer uses `MyInventory.TransferByUser` only after checking the concrete source and destination, current access, group membership, live constraints, capacity, sorter-aware reachable endpoints, and the plain conveyor reachability result. Conveyor automation send/receive flags do not restrict manual transfers. Production is add-only; the plugin never clears or reorders a player's assembler queues.
 
 ## Reporting bugs
 

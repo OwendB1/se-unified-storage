@@ -19,7 +19,7 @@ public static class ProjectionOrdering
             .ToDictionary(pair => pair.id, pair => pair.index);
         var roles = projection.Roles.Select(role =>
         {
-            if (role.Section.Kind != InventorySectionKind.Refineries ||
+            if (!role.Members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery) ||
                 role.Role != InventoryRoleKind.ProductionInput)
                 return role;
             var stacks = role.Stacks.OrderBy(stack =>
@@ -33,7 +33,7 @@ public static class ProjectionOrdering
                 stacks,
                 role.CurrentMass,
                 role.CurrentVolume,
-                role.MaxVolume);
+                role.MaxVolume, role.Group);
         }).ToArray();
         return new InventoryProjection(projection.Scope, roles);
     }

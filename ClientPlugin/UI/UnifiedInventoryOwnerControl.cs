@@ -51,7 +51,9 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         Action<IReadOnlyList<InventoryRoleProjection>> rebalance,
         Action<IReadOnlyList<InventoryRoleProjection>> manage,
         Action<InventorySectionKey> configure,
-        Action<InventorySectionKey> utility)
+        Action<InventorySectionKey> utility,
+        Action groups,
+        Action loadouts)
         : base(
             size: new Vector2(0.392f, 0.1f),
             backgroundTexture: new MyGuiCompositeTexture
@@ -98,6 +100,10 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         policyCombo.ItemSelected += () => policyChanged?.Invoke(this,
             (DistributionPolicy)policyCombo.GetSelectedKey());
         Elements.Add(policyCombo);
+        Elements.Add(MakeButton("Groups", topLeft.X + 0.19f, topLeft.Y, 0.08f,
+            _ => groups(), "Create, edit and order inventory groups"));
+        Elements.Add(MakeButton("Loadouts", topLeft.X + 0.28f, topLeft.Y, 0.094f,
+            _ => loadouts(), "Configure loadouts for any inventory group"));
 
         var y = topLeft.Y + OwnerHeaderHeight;
         foreach (var section in sections)
@@ -237,6 +243,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         InventorySectionKind.Refineries => "Priority",
         InventorySectionKind.Assemblers => "Targets",
         InventorySectionKind.UnifiedCargo => null,
+        InventorySectionKind.DefinitionFallback => "Actions",
         _ => "Loadouts"
     };
 
@@ -256,8 +263,8 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private static string UtilityTooltip(InventorySectionKey section) =>
         section.Kind == InventorySectionKind.UnifiedCargo
-            ? "Run the bounded bottle refill job"
-            : "Move inventory from idle assembly-mode assemblers back to Unified Cargo";
+            ? "Run the ship-wide bounded bottle refill job"
+            : "Move inventory from this ship's idle assembly-mode assemblers back to general cargo";
 
     private static float GetSectionHeaderHeight(InventorySectionKey section) =>
         FeatureName(section) != null && UtilityName(section) != null
@@ -283,7 +290,9 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                stack.DefinitionId.ToString().IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    private static string GetSectionName(InventoryRoleProjection role) => role.Section.Kind switch
+    private static string GetSectionName(InventoryRoleProjection role) => role.Group != null
+        ? role.Group.Name + (role.Section.BlockDefinitionId == default ? string.Empty : " / " + role.Section.BlockDefinitionId.SubtypeName)
+        : role.Section.Kind switch
     {
         InventorySectionKind.UnifiedCargo => "Unified Cargo",
         InventorySectionKind.PowerProducers => "Power Producers",

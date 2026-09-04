@@ -43,6 +43,9 @@ public sealed class RefineryPriorityRecord
 
 public sealed class LoadoutRecord
 {
+    public string GroupId { get; set; }
+    public string SupplyGroupId { get; set; }
+    public string ReturnGroupId { get; set; }
     public LoadoutTargetKind TargetKind { get; set; }
     public long TargetBlockEntityId { get; set; }
     public string TargetBlockDefinitionId { get; set; }
@@ -65,6 +68,8 @@ public enum LoadoutTargetKind
 
 public sealed class ScopeProfile
 {
+    public int GroupSchemaVersion { get; set; }
+    public List<InventoryGroupRecord> Groups { get; set; } = new();
     public string WorldId { get; set; }
     public long ScopeAnchorEntityId { get; set; }
     public DistributionPolicy Policy { get; set; } = DistributionPolicy.ExistingStackFirst;
@@ -114,6 +119,7 @@ public sealed class LocalProfileStore
     private readonly IPluginLogger log;
     private readonly string path;
     private LocalProfileDocument document;
+    private bool loadFailed;
 
     public LocalProfileStore(IPluginLogger log, string path = null)
     {
@@ -133,7 +139,10 @@ public sealed class LocalProfileStore
             string.Equals(candidate.WorldId, worldId, StringComparison.Ordinal) &&
             candidate.ScopeAnchorEntityId == anchor);
         if (profile != null)
+        {
+            InventoryGroupRecord.Migrate(profile);
             return profile;
+        }
         profile = new ScopeProfile
         {
             WorldId = worldId ?? string.Empty,
@@ -141,15 +150,23 @@ public sealed class LocalProfileStore
             Policy = Config.Current.DefaultPolicy
         };
         document.Profiles.Add(profile);
+        InventoryGroupRecord.Migrate(profile);
         return profile;
     }
 
     public void Save()
     {
+        if (loadFailed)
+            throw new InvalidOperationException("Local profile loading failed; refusing to overwrite the existing file. Restore or repair it first.");
         Directory.CreateDirectory(Path.GetDirectoryName(path));
         var serializer = new XmlSerializer(typeof(LocalProfileDocument));
-        using var writer = File.CreateText(path);
-        serializer.Serialize(writer, document);
+        var temporary = path + ".tmp";
+        using (var writer = File.CreateText(temporary))
+            serializer.Serialize(writer, document);
+        if (File.Exists(path))
+            File.Replace(temporary, path, path + ".bak");
+        else
+            File.Move(temporary, path);
     }
 
     private LocalProfileDocument Load()
@@ -160,10 +177,14 @@ public sealed class LocalProfileStore
         {
             var serializer = new XmlSerializer(typeof(LocalProfileDocument));
             using var reader = File.OpenText(path);
-            return serializer.Deserialize(reader) as LocalProfileDocument ?? new LocalProfileDocument();
+            var loaded = serializer.Deserialize(reader) as LocalProfileDocument ?? new LocalProfileDocument();
+            foreach (var profile in loaded.Profiles)
+                InventoryGroupRecord.Migrate(profile);
+            return loaded;
         }
         catch (Exception exception)
         {
+            loadFailed = true;
             log.Error(exception, "Failed to load local profile store: {0}", path);
             return new LocalProfileDocument();
         }

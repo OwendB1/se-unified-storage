@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ClientPlugin.Profiles;
 using Sandbox.Game;
 using VRage;
 using VRage.Game;
@@ -76,7 +77,8 @@ public sealed class InventoryRoleProjection
         IReadOnlyList<ProjectedInventoryStack> stacks,
         MyFixedPoint currentMass,
         MyFixedPoint currentVolume,
-        MyFixedPoint maxVolume)
+        MyFixedPoint maxVolume,
+        InventoryGroupRecord group = null)
     {
         Section = section;
         Role = role;
@@ -85,9 +87,12 @@ public sealed class InventoryRoleProjection
         CurrentMass = currentMass;
         CurrentVolume = currentVolume;
         MaxVolume = maxVolume;
+        Group = group;
     }
 
     public InventorySectionKey Section { get; }
+    public InventoryGroupRecord Group { get; }
+    public bool Accepts(MyDefinitionId item) => InventoryGroups.Accepts(Group, item);
     public InventoryRoleKind Role { get; }
     public IReadOnlyList<InventoryDescriptor> Members { get; }
     public IReadOnlyList<ProjectedInventoryStack> Stacks { get; }

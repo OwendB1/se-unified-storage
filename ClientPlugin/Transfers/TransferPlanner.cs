@@ -73,6 +73,9 @@ public readonly struct PhysicalTransferAllocation
 
 public sealed class TransferPlan
 {
+    public Func<bool> CanContinue { get; set; }
+    public string GuardFailureMessage { get; set; }
+    public Func<PhysicalTransferAllocation, MyFixedPoint> LimitAmount { get; set; }
     public TransferPlan(
         MyDefinitionId itemId,
         MyFixedPoint requestedAmount,
@@ -114,7 +117,7 @@ public static class TransferPlanner
         {
             DistributionPolicy.ExistingStackFirst => Greedy(
                 usable.OrderByDescending(candidate => candidate.CurrentItemAmount > MyFixedPoint.Zero)
-                    .ThenByDescending(candidate => candidate.CurrentItemAmount)
+                    .ThenByDescending(candidate => candidate.CurrentItemAmount.RawValue)
                     .ThenBy(candidate => candidate.Inventory.OwnerEntityId),
                 itemId,
                 amount),
@@ -149,7 +152,7 @@ public static class TransferPlanner
         {
             DistributionPolicy.ExistingStackFirst => usable
                 .OrderByDescending(candidate => candidate.CurrentItemAmount > MyFixedPoint.Zero)
-                .ThenByDescending(candidate => candidate.CurrentItemAmount)
+                .ThenByDescending(candidate => candidate.CurrentItemAmount.RawValue)
                 .ThenBy(candidate => candidate.Inventory.OwnerEntityId),
             DistributionPolicy.FillFirst => usable
                 .OrderByDescending(candidate => candidate.FillRatio)
@@ -187,7 +190,7 @@ public static class TransferPlanner
         var remainingRequest = Normalize(itemId, requestedAmount);
         var sources = sourceStacks
             .Where(source => source.DefinitionId == itemId && source.SnapshotAmount > MyFixedPoint.Zero)
-            .OrderByDescending(source => source.SnapshotAmount)
+            .OrderByDescending(source => source.SnapshotAmount.RawValue)
             .ThenBy(source => source.Descriptor?.OwnerEntityId ?? source.Inventory.Owner?.EntityId ?? 0L)
             .ThenBy(source => source.ItemId)
             .Select(source => new RemainingSource(source))

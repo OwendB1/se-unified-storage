@@ -30,7 +30,7 @@ public static class TransferPlanFactory
                      .Where(candidate => candidate.Descriptor == null ||
                          (getFlags(candidate.Descriptor) & (InventoryManagementFlags.ManualBlock |
                                                             InventoryManagementFlags.ReservedInventory)) == 0)
-                     .OrderByDescending(candidate => candidate.SnapshotAmount)
+                     .OrderByDescending(candidate => candidate.SnapshotAmount.RawValue)
                      .ThenBy(candidate => candidate.Descriptor?.OwnerEntityId ?? 0L)
                      .ThenBy(candidate => candidate.ItemId))
         {
@@ -109,7 +109,7 @@ public static class TransferPlanFactory
             var flags = getFlags(member);
             return (flags & (InventoryManagementFlags.ManualBlock |
                              InventoryManagementFlags.ReservedInventory)) == 0 &&
-                   (role.Section.Kind != InventorySectionKind.UnifiedCargo ||
+                   (member.Section.Kind != InventorySectionKind.UnifiedCargo ||
                     (flags & InventoryManagementFlags.NoUnifiedCargoDestination) == 0);
         }).ToArray();
         var plans = new List<TransferPlan>();
@@ -176,7 +176,7 @@ public static class TransferPlanFactory
                     ? targetAmount
                     : MyFixedPoint.Zero;
                 var surplus = MyFixedPoint.Max(current - target, MyFixedPoint.Zero);
-                foreach (var source in inventoryGroup.OrderByDescending(candidate => candidate.SnapshotAmount))
+                foreach (var source in inventoryGroup.OrderByDescending(candidate => candidate.SnapshotAmount.RawValue))
                 {
                     if (surplus <= MyFixedPoint.Zero)
                         break;
@@ -226,7 +226,7 @@ public static class TransferPlanFactory
         var requested = TransferPlanner.Normalize(itemId, amount);
         foreach (var destination in allDestinations.OrderBy(candidate => candidate.Inventory.OwnerEntityId)
                      .ThenBy(candidate => candidate.Inventory.InventoryIndex))
-        foreach (var source in sources.OrderByDescending(candidate => candidate.SnapshotAmount)
+        foreach (var source in sources.OrderByDescending(candidate => candidate.SnapshotAmount.RawValue)
                      .ThenBy(candidate => candidate.Descriptor?.OwnerEntityId ?? 0L)
                      .ThenBy(candidate => candidate.ItemId))
         {
@@ -254,7 +254,6 @@ public static class TransferPlanFactory
                                  InventoryManagementFlags.ReservedInventory)) == 0 &&
                        (candidate.Section.Kind != InventorySectionKind.UnifiedCargo ||
                         (flags & InventoryManagementFlags.NoUnifiedCargoDestination) == 0) &&
-                       (candidate.Flags & MyInventoryFlags.CanReceive) != 0 &&
                        candidate.Roles.Any(role => role.Accepts(itemId)) &&
                        candidate.Inventory.CheckConstraint(itemId);
             })

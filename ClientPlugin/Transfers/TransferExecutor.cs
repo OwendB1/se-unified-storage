@@ -64,8 +64,8 @@ public sealed class TransferExecutor
             interactedEntity,
             identityId,
             getManagementFlags ?? (_ => InventoryManagementFlags.None),
-            canContinue,
-            guardFailureMessage,
+            () => (plan.CanContinue?.Invoke() ?? true) && (canContinue?.Invoke() ?? true),
+            guardFailureMessage ?? plan.GuardFailureMessage,
             completed,
             result));
         return result;
@@ -124,6 +124,14 @@ public sealed class TransferExecutor
             var allocation = active.Plan.Allocations[active.NextAllocation];
             if (!TryPreflight(active, allocation, out var amount, out var reason))
             {
+                active.LastFailureReason = reason;
+                Plugin.Instance.Log.Debug("Unified transfer skipped {0}: {1} ({2}) -> {3} ({4}): {5}",
+                    active.Plan.ItemId,
+                    allocation.Source.Inventory.Owner?.DisplayName,
+                    allocation.Source.Inventory.Owner?.EntityId,
+                    allocation.DestinationInventory.Owner?.DisplayName,
+                    allocation.DestinationInventory.Owner?.EntityId,
+                    reason);
                 active.ConsecutiveFailures++;
                 active.NextAllocation++;
                 if (active.ConsecutiveFailures >= 3)
@@ -159,7 +167,10 @@ public sealed class TransferExecutor
                 ? TransferOperationStatus.Complete
                 : TransferOperationStatus.Partial;
             Finish(active, status,
-                $"{active.Result.MovedAmount} / {active.Plan.RequestedAmount} moved");
+                $"{active.Result.MovedAmount} / {active.Plan.RequestedAmount} moved" +
+                (status == TransferOperationStatus.Partial && active.LastFailureReason != null
+                    ? $": {active.LastFailureReason}"
+                    : string.Empty));
         }
     }
 
@@ -220,12 +231,8 @@ public sealed class TransferExecutor
             reason = "source stack changed";
             return false;
         }
-        if ((sourceInventory.GetFlags() & MyInventoryFlags.CanSend) == 0 ||
-            (destinationInventory.GetFlags() & MyInventoryFlags.CanReceive) == 0)
-        {
-            reason = "inventory send/receive flags reject the transfer";
-            return false;
-        }
+        // CanSend/CanReceive control conveyor automation, not vanilla manual transfers.
+        // Reactors are receive-only but users can still withdraw their fuel.
         if (!destinationInventory.CheckConstraint(operation.Plan.ItemId))
         {
             reason = "destination constraint rejects the item";
@@ -234,7 +241,8 @@ public sealed class TransferExecutor
         amount = TransferPlanner.Normalize(
             operation.Plan.ItemId,
             MyFixedPoint.Min(operation.Plan.RequestedAmount - operation.Result.MovedAmount,
-                MyFixedPoint.Min(allocation.Amount,
+                    MyFixedPoint.Min(MyFixedPoint.Min(allocation.Amount,
+                            operation.Plan.LimitAmount?.Invoke(allocation) ?? allocation.Amount),
                     MyFixedPoint.Min(item.Value.Amount,
                         destinationInventory.ComputeAmountThatFits(operation.Plan.ItemId)))));
         if (amount <= MyFixedPoint.Zero || !destinationInventory.CanItemsBeAdded(amount, operation.Plan.ItemId))
@@ -312,6 +320,7 @@ public sealed class TransferExecutor
         public TransferOperationResult Result { get; }
         public int NextAllocation { get; set; }
         public int ConsecutiveFailures { get; set; }
+        public string LastFailureReason { get; set; }
         public InFlightTransfer InFlight { get; set; }
     }
 

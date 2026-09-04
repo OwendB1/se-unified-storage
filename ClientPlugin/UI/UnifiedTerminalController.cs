@@ -6,6 +6,7 @@ using ClientPlugin.Automation;
 using ClientPlugin.Inventory;
 using ClientPlugin.Profiles;
 using ClientPlugin.Transfers;
+using HarmonyLib;
 using Sandbox;
 using Sandbox.Game;
 using Sandbox.Game.Entities;
@@ -95,6 +96,10 @@ internal sealed class UnifiedTerminalController : IDisposable
         public MyGuiControlLabel HideEmptyLabel;
         public MyGuiControlRadioButton SystemFilterButton;
         public GasSystemFilterOverlay SystemFilterOverlay;
+        public MyGuiControlCombobox ScopeSelector;
+        public List<ScopeChoice> ScopeChoices = new();
+        public string SelectedScopeId;
+        public string ScopeChoicesSignature;
         public PaneFilter Filter;
         public bool ShowGrid;
         public ProjectedGridContext FocusedProjected;
@@ -105,7 +110,19 @@ internal sealed class UnifiedTerminalController : IDisposable
         public List<(MyGuiControlRadioButton Button, Action<MyGuiControlRadioButton> Handler)> FilterHandlers = new();
     }
 
+    private sealed class ScopeChoice
+    {
+        public MechanicalInventorySession Session;
+        public InventoryProjectionView View;
+        public string Label;
+        public string Tooltip;
+        public bool AccessedConstruct;
+        public bool AccessedNetwork;
+    }
+
     private readonly object vanillaController;
+    private static readonly System.Reflection.FieldInfo RadioSelectionHandlers =
+        AccessTools.Field(typeof(MyGuiControlRadioButton), "SelectedChanged");
     private readonly List<MechanicalInventorySession> sessions = new();
     private readonly Dictionary<MechanicalInventorySession, ScopeProfile> profiles = new();
     private readonly Dictionary<string, bool> vanillaActionVisibility = new(StringComparer.Ordinal);
@@ -225,9 +242,35 @@ internal sealed class UnifiedTerminalController : IDisposable
         pane.List = Get<MyGuiControlList>(prefix + "Inventory");
         pane.SuitButton = Get<MyGuiControlRadioButton>(prefix + "SuitButton");
         pane.GridButton = Get<MyGuiControlRadioButton>(prefix + "GridButton");
+        // Clear() detaches a radio group but leaves its buttons selected. A new
+        // group must reset them, otherwise clicking an already-selected stale
+        // button raises no event after a vanilla/unified transition.
+        ResetRadioButton(pane.SuitButton);
+        ResetRadioButton(pane.GridButton);
         pane.Search = Get<MyGuiControlSearchBox>("BlockSearch" + prefix);
         pane.HideEmpty = Get<MyGuiControlCheckbox>("CheckboxHideEmpty" + prefix);
         pane.HideEmptyLabel = Get<MyGuiControlLabel>("LabelHideEmpty" + prefix);
+        pane.ScopeSelector = new MyGuiControlCombobox(
+            new Vector2(pane.IsLeft ? -0.46f : 0.0225f, -0.225f),
+            new Vector2(0.437f, 0.035f),
+            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
+            openAreaItemsCount: 10,
+            isAutoscaleEnabled: true,
+            isAutoEllipsisEnabled: true)
+        {
+            Name = prefix + "UnifiedScope",
+            Visible = false
+        };
+        pane.ScopeSelector.ItemSelected += () =>
+        {
+            var index = (int)pane.ScopeSelector.GetSelectedKey();
+            if (index < 0 || index >= pane.ScopeChoices.Count)
+                return;
+            pane.SelectedScopeId = pane.ScopeChoices[index].View.Id;
+            pane.List.SetScrollBarPage();
+            RebuildPane(pane);
+        };
+        controlsParent.Controls.Add(pane.ScopeSelector);
         pane.TypeGroup = new MyGuiControlRadioButtonGroup();
         pane.TypeGroup.Add(pane.SuitButton);
         pane.TypeGroup.Add(pane.GridButton);
@@ -250,6 +293,7 @@ internal sealed class UnifiedTerminalController : IDisposable
         foreach (var (suffix, filter) in filters)
         {
             var button = Get<MyGuiControlRadioButton>(prefix + suffix);
+            ResetRadioButton(button);
             if (filter == PaneFilter.System)
                 pane.SystemFilterButton = button;
             pane.FilterGroup.Add(button);
@@ -270,6 +314,17 @@ internal sealed class UnifiedTerminalController : IDisposable
         pane.HideEmpty.IsCheckedChanged += pane.HideChanged;
     }
 
+    private void ResetRadioButton(MyGuiControlRadioButton button)
+    {
+        // Keen's Close() leaves its anonymous filter callbacks attached to reused
+        // controls. Remove only that closed controller's handlers, not other plugins'.
+        if (RadioSelectionHandlers.GetValue(button) is Delegate handlers)
+            foreach (var handler in handlers.GetInvocationList())
+                if (ReferenceEquals(handler.Target, vanillaController))
+                    button.SelectedChanged -= (Action<MyGuiControlRadioButton>)handler;
+        button.Selected = false;
+    }
+
     private static void ApplyPaneLayout(Pane pane)
     {
         pane.Search.Visible = pane.ShowGrid;
@@ -282,26 +337,42 @@ internal sealed class UnifiedTerminalController : IDisposable
             button.Enabled = pane.ShowGrid;
             button.Visible = pane.ShowGrid;
         }
+        var scopeHeight = pane.ShowGrid && pane.ScopeChoices.Count > 1 ? 0.045f : 0f;
+        if (pane.ScopeSelector != null)
+            pane.ScopeSelector.Visible = scopeHeight > 0;
         pane.List.Position = new Vector2(pane.IsLeft ? -0.46f : 0.4595f,
-            pane.ShowGrid ? -0.227f : -0.276f);
+            pane.ShowGrid ? -0.227f + scopeHeight : -0.276f);
         pane.List.Size = pane.ShowGrid
-            ? new Vector2(0.437f, 0.569f)
+            ? new Vector2(0.437f, 0.569f - scopeHeight)
             : new Vector2(0.437f, 0.618f);
     }
 
     private void ClearPane(Pane pane)
     {
+        if (pane.ScopeSelector != null)
+            controlsParent?.Controls.Remove(pane.ScopeSelector);
+        pane.ScopeSelector = null;
+        pane.ScopeChoices.Clear();
+        pane.SelectedScopeId = null;
+        pane.ScopeChoicesSignature = null;
         if (pane.Search != null && pane.SearchChanged != null)
             pane.Search.OnTextChanged -= pane.SearchChanged;
         if (pane.HideEmpty != null && pane.HideChanged != null)
             pane.HideEmpty.IsCheckedChanged -= pane.HideChanged;
         foreach (var (button, handler) in pane.FilterHandlers)
+        {
             button.SelectedChanged -= handler;
+            button.Selected = false;
+        }
         pane.FilterHandlers.Clear();
         if (pane.TypeGroup != null && pane.TypeChanged != null)
             pane.TypeGroup.SelectedChanged -= pane.TypeChanged;
         pane.TypeGroup?.Clear();
         pane.FilterGroup?.Clear();
+        if (pane.SuitButton != null)
+            pane.SuitButton.Selected = false;
+        if (pane.GridButton != null)
+            pane.GridButton.Selected = false;
         pane.List = null;
         pane.SuitButton = null;
         pane.GridButton = null;
@@ -391,6 +462,8 @@ internal sealed class UnifiedTerminalController : IDisposable
     {
         if (pane.SystemFilterButton == null)
             return;
+        if (pane.SystemFilterOverlay != null)
+            controlsParent.Controls.Remove(pane.SystemFilterOverlay);
         pane.SystemFilterButton.VisualStyle = MyGuiControlRadioButtonStyleEnum.FilterSystem;
         pane.SystemFilterButton.Icon = null;
         pane.SystemFilterOverlay = new GasSystemFilterOverlay(pane.SystemFilterButton);
@@ -441,6 +514,7 @@ internal sealed class UnifiedTerminalController : IDisposable
         pane.FocusedReal = null;
         if (!pane.ShowGrid)
         {
+            ApplyPaneLayout(pane);
             var controls = new List<MyGuiControlBase>();
             if (user?.HasInventory == true)
             {
@@ -470,14 +544,15 @@ internal sealed class UnifiedTerminalController : IDisposable
         var ownerControls = new List<MyGuiControlBase>();
         var gridCount = 0;
         var stackCount = 0;
-        foreach (var session in sessions)
+        var choice = UpdateScopeSelector(pane);
+        if (choice != null)
         {
+            var session = choice.Session;
             var profile = profiles[session];
-            var baseProjection = session.Refresh();
-            foreach (var view in ProjectionViewBuilder.Build(session, baseProjection, Config.Current.ScopeMode))
+            var view = choice.View;
             {
                 var projection = view.Projection;
-                if (projection.Roles.Any(role => role.Section.Kind == InventorySectionKind.Refineries))
+                if (projection.Roles.Any(role => role.Members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery)))
                     projection = ProjectionOrdering.ApplyRefineryPriority(
                         projection,
                         RefineryPriorityEngine.Build(session.Scope, profile, GetFlags));
@@ -508,7 +583,9 @@ internal sealed class UnifiedTerminalController : IDisposable
                     roles => Rebalance(session, roles),
                     roles => MyGuiSandbox.AddScreen(new MemberManagementScreen(session, roles, profile)),
                     section => ConfigureSection(session, projection, section),
-                    section => RunUtility(session, projection, section));
+                    section => RunUtility(session, projection, section),
+                    () => MyGuiSandbox.AddScreen(new InventoryGroupsScreen(session, profile)),
+                    () => MyGuiSandbox.AddScreen(new LoadoutScreen(session, projection, profile, default, GetFlags, plan => Queue(plan))));
                 foreach (var grid in owner.Grids)
                 {
                     grid.ItemSelected += (_, _) => pane.FocusedProjected = grid.UserData as ProjectedGridContext;
@@ -531,6 +608,83 @@ internal sealed class UnifiedTerminalController : IDisposable
             gridCount,
             stackCount,
             started.Elapsed.TotalMilliseconds);
+    }
+
+    private ScopeChoice UpdateScopeSelector(Pane pane)
+    {
+        var choices = new List<ScopeChoice>();
+        var accessedGrid = (interacted as MyCubeBlock)?.CubeGrid ?? interacted as MyCubeGrid ?? interacted?.Parent as MyCubeGrid;
+        foreach (var session in sessions)
+        {
+            var projection = InventoryGroups.Build(session.Refresh(), profiles[session]);
+            var mechanical = ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.MechanicalGroups)[0];
+            var accessed = session.Scope.Grids.Contains(accessedGrid);
+            var gridId = session.Scope.Grids.Min(grid => grid.EntityId);
+            var name = session.Scope.AnchorGrid.DisplayName;
+            var duplicate = sessions.Count(other => other.Scope.AnchorGrid.DisplayName == name) > 1;
+            var ship = name.Length > 28 ? name.Substring(0, 27) + "…" : name;
+            var shipNumber = sessions.OrderBy(other => other.Scope.Grids.Min(grid => grid.EntityId)).ToList().IndexOf(session) + 1;
+            void Add(InventoryProjectionView view, string detail, bool network = false)
+            {
+                var members = view.Projection.Roles.SelectMany(role => role.Members)
+                    .GroupBy(member => member.OwnerEntityId).Select(group => group.First()).ToArray();
+                var atHatch = network && members.Any(member => member.OwnerEntityId == interacted?.EntityId);
+                choices.Add(new ScopeChoice
+                {
+                    Session = session,
+                    View = view,
+                    Label = $"{(atHatch ? "[Accessed] " : accessed ? "[Local] " : "")}" +
+                            (duplicate ? $"Ship {shipNumber} · " : string.Empty) + $"{detail} — {ship}",
+                    Tooltip = $"{name}\nConstruct ID: {gridId}\n{detail}: {members.Length} inventory blocks\n" +
+                              (atHatch ? "Contains the accessed hatch.\n" : "") +
+                              "Network grouping is not a transfer guarantee: access, sorters and tube sizes still apply.",
+                    AccessedConstruct = accessed,
+                    AccessedNetwork = atHatch
+                });
+            }
+            Add(mechanical, "Whole construct");
+            var networks = ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.ConveyorComponents);
+            if (networks.Count > 1)
+                foreach (var network in networks)
+                {
+                    var member = network.Projection.Roles.SelectMany(role => role.Members)
+                        .OrderByDescending(member => member.OwnerEntityId == interacted?.EntityId)
+                        .ThenBy(member => member.OwnerEntityId).First();
+                    var blockName = member.Owner is Sandbox.Game.Entities.Cube.MyTerminalBlock terminal
+                        ? terminal.CustomName.ToString() : member.Owner.DisplayNameText;
+                    Add(network, $"{network.Name} · {blockName}", network: true);
+                }
+            if (Config.Current.ScopeMode == InventoryScopeMode.BlockGroups)
+                foreach (var group in ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.BlockGroups)
+                             .Where(group => group.Id != mechanical.Id))
+                    Add(group, "Group · " + group.Name);
+        }
+        choices = choices.OrderByDescending(choice => choice.AccessedConstruct)
+            .ThenBy(choice => choice.Session.Scope.Grids.Min(grid => grid.EntityId))
+            .ThenByDescending(choice => choice.AccessedNetwork).ToList();
+        pane.ScopeChoices = choices;
+        var selected = choices.FindIndex(choice => choice.View.Id == pane.SelectedScopeId);
+        if (selected < 0)
+        {
+            selected = choices.FindIndex(choice => choice.AccessedNetwork);
+            if (selected < 0)
+                selected = 0;
+            pane.SelectedScopeId = choices.ElementAtOrDefault(selected)?.View.Id;
+            pane.List.SetScrollBarPage();
+        }
+        var signature = string.Join("\n", choices.Select(choice => choice.View.Id + ":" + choice.Label));
+        if (signature != pane.ScopeChoicesSignature)
+        {
+            pane.ScopeChoicesSignature = signature;
+            pane.ScopeSelector.ClearItems();
+            for (var index = 0; index < choices.Count; index++)
+                pane.ScopeSelector.AddItem(index, choices[index].Label, toolTip: choices[index].Tooltip);
+        }
+        pane.ScopeSelector.SelectItemByKey(selected, sendEvent: false);
+        var result = choices.ElementAtOrDefault(selected);
+        pane.ScopeSelector.SetToolTip(result?.Tooltip ?? "No available inventories");
+        ApplyPaneLayout(pane);
+        return result;
     }
 
     private void StartDragging(MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
@@ -571,20 +725,18 @@ internal sealed class UnifiedTerminalController : IDisposable
         {
             if (destinationGrid.UserData is MyInventory realDestination)
             {
-                Queue(TransferPlanFactory.Withdraw(projected, realDestination, requestedAmount, GetFlags));
+                QueueProjected(TransferPlanFactory.Withdraw(projected, realDestination, requestedAmount, GetFlags),
+                    sourceGrid.UserData as ProjectedGridContext);
                 return;
             }
-            if (destinationGrid.UserData is ProjectedGridContext projectedDestination &&
-                !string.Equals(projectedDestination.Owner.ViewId,
-                    (sourceGrid.UserData as ProjectedGridContext)?.Owner.ViewId,
-                    StringComparison.Ordinal))
+            if (destinationGrid.UserData is ProjectedGridContext projectedDestination)
             {
-                Queue(TransferPlanFactory.BetweenScopes(
+                QueueProjected(TransferPlanFactory.BetweenScopes(
                     projected,
                     requestedAmount,
-                    projectedDestination.Role.Members,
+                    Destinations(projectedDestination, projected.DefinitionId),
                     profiles[projectedDestination.Owner.Session].Policy,
-                    GetFlags));
+                    GetFlags), sourceGrid.UserData as ProjectedGridContext, projectedDestination);
             }
             return;
         }
@@ -593,13 +745,13 @@ internal sealed class UnifiedTerminalController : IDisposable
             sourceGrid.UserData is MyInventory realSource &&
             destinationGrid.UserData is ProjectedGridContext destination)
         {
-            Queue(TransferPlanFactory.Deposit(
+            QueueProjected(TransferPlanFactory.Deposit(
                 realSource,
                 realItem,
                 requestedAmount,
-                destination.Role.Members,
+                Destinations(destination, realItem.Content.GetObjectId()),
                 profiles[destination.Owner.Session].Policy,
-                GetFlags));
+                GetFlags), destination);
         }
     }
 
@@ -681,17 +833,17 @@ internal sealed class UnifiedTerminalController : IDisposable
             return;
         if (!targetPane.ShowGrid && targetPane.FocusedReal?.UserData is MyInventory destination)
         {
-            Queue(TransferPlanFactory.Withdraw(projected, destination, projected.Amount, GetFlags));
+            QueueProjected(TransferPlanFactory.Withdraw(projected, destination, projected.Amount, GetFlags), source);
             return;
         }
         var target = targetPane.FocusedProjected;
-        if (target != null && !string.Equals(target.Owner.ViewId, source.Owner.ViewId, StringComparison.Ordinal))
-            Queue(TransferPlanFactory.BetweenScopes(
+        if (target != null)
+            QueueProjected(TransferPlanFactory.BetweenScopes(
                 projected,
                 projected.Amount,
-                target.Role.Members,
+                Destinations(target, projected.DefinitionId),
                 profiles[target.Owner.Session].Policy,
-                GetFlags));
+                GetFlags), source, target);
     }
 
     private void RealItemDoubleClicked(Pane sourcePane, MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
@@ -701,31 +853,48 @@ internal sealed class UnifiedTerminalController : IDisposable
             grid.UserData is not MyInventory inventory ||
             grid.GetItemAt(args.ItemIndex)?.UserData is not MyPhysicalInventoryItem item)
             return;
-        Queue(TransferPlanFactory.Deposit(
+        QueueProjected(TransferPlanFactory.Deposit(
             inventory,
             item,
             item.Amount,
-            target.Role.Members,
+            Destinations(target, item.Content.GetObjectId()),
             profiles[target.Owner.Session].Policy,
-            GetFlags));
+            GetFlags), target);
     }
 
     private void Rebalance(
         MechanicalInventorySession session,
         IReadOnlyList<InventoryRoleProjection> roles)
     {
+        try
+        {
+            RebalanceSection(session, roles);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Instance.Log.Error(exception, "Unified Storage rebalance failed");
+            Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification(
+                "Unified Storage: rebalance failed. See the log for details.", 5000, "Red");
+        }
+    }
+
+    private void RebalanceSection(
+        MechanicalInventorySession session,
+        IReadOnlyList<InventoryRoleProjection> roles)
+    {
         var profile = profiles[session];
         var plans = roles.SelectMany(role => TransferPlanFactory.Rebalance(role, profile.Policy, GetFlags))
             .ToArray();
-        var sortRefineries = roles.Any(role => role.Section.Kind == InventorySectionKind.Refineries);
+        var sortRefineries = roles.Any(role => role.Members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery));
+        var guard = InventoryGroups.Guard(session.Scope, profile, roles.Select(role => role.Section.GroupId));
         for (var index = 0; index < plans.Length; index++)
         {
             var isLast = index == plans.Length - 1;
-            Queue(plans[index], null, null,
-                sortRefineries && isLast ? _ => SortRefineries(session.Scope, profile) : null);
+            Queue(plans[index], guard, "group membership changed; reapply rebalance",
+                sortRefineries && isLast ? _ => SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members)) : null);
         }
         if (sortRefineries && plans.Length == 0)
-            SortRefineries(session.Scope, profile);
+            SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members));
     }
 
     private void ConfigureSection(
@@ -734,6 +903,20 @@ internal sealed class UnifiedTerminalController : IDisposable
         InventorySectionKey section)
     {
         var profile = profiles[session];
+        if (section.Kind == InventorySectionKind.DefinitionFallback)
+        {
+            var members = projection.Roles.Where(role => role.Section.Equals(section)).SelectMany(role => role.Members).ToArray();
+            var actions = new List<(string Label, Action Run)>
+            {
+                ("Group loadouts", () => MyGuiSandbox.AddScreen(new LoadoutScreen(session, projection, profile, section, GetFlags, plan => Queue(plan))))
+            };
+            if (members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery))
+                actions.Add(("Ship ore priority", () => MyGuiSandbox.AddScreen(new RefineryPriorityScreen(session, profile, GetFlags, () => SortRefineries(session)))));
+            if (members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyAssembler))
+                actions.Add(("Ship component targets", () => MyGuiSandbox.AddScreen(new ComponentTargetsScreen(session, profile, GetFlags))));
+            MyGuiSandbox.AddScreen(new InventoryGroupActionsScreen(actions));
+            return;
+        }
         switch (section.Kind)
         {
             case InventorySectionKind.Refineries:
@@ -756,6 +939,8 @@ internal sealed class UnifiedTerminalController : IDisposable
         InventorySectionKey section)
     {
         var profile = profiles[session];
+        // Utilities are explicitly ship-wide, not actions on possibly overlapping display rows.
+        projection = session.Refresh();
         if (section.Kind == InventorySectionKind.UnifiedCargo)
         {
             Plugin.Instance.BottleRefills.Start(
@@ -778,12 +963,13 @@ internal sealed class UnifiedTerminalController : IDisposable
     private void SortRefineries(MechanicalInventorySession session)
         => SortRefineries(session.Scope, profiles[session]);
 
-    private static void SortRefineries(MechanicalInventoryScope scope, ScopeProfile profile)
+    private static void SortRefineries(MechanicalInventoryScope scope, ScopeProfile profile,
+        IEnumerable<InventoryDescriptor> selected = null)
     {
         InventoryManagementFlags Flags(InventoryDescriptor descriptor) =>
             profile.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex);
         var model = RefineryPriorityEngine.Build(scope, profile, Flags);
-        foreach (var refinery in scope.Inventories.Select(descriptor => descriptor.Owner)
+        foreach (var refinery in (selected ?? scope.Inventories).Select(descriptor => descriptor.Owner)
                      .OfType<Sandbox.Game.Entities.Cube.MyRefinery>().Distinct()
                      .Where(refinery => !RefineryPriorityEngine.IsExcludedFromSorting(
                          refinery, scope, Flags)))
@@ -796,6 +982,18 @@ internal sealed class UnifiedTerminalController : IDisposable
     private void Queue(TransferPlan plan)
         => Queue(plan, null, null);
 
+    private static IEnumerable<InventoryDescriptor> Destinations(ProjectedGridContext context, MyDefinitionId item) =>
+        context.Role.Accepts(item) ? context.Role.Members.Where(member =>
+            member.Roles.Any(role => role.Kind == context.Role.Role && role.Accepts(item))) : Array.Empty<InventoryDescriptor>();
+
+    private void QueueProjected(TransferPlan plan, params ProjectedGridContext[] contexts)
+    {
+        var guards = contexts.Where(context => context != null).Select(context =>
+            InventoryGroups.Guard(context.Owner.Session.Scope, profiles[context.Owner.Session],
+                new[] { context.Role.Section.GroupId })).ToArray();
+        Queue(plan, () => guards.All(guard => guard()), "group membership changed; retry transfer");
+    }
+
     private void Queue(
         TransferPlan plan,
         Func<bool> canContinue,
@@ -804,24 +1002,22 @@ internal sealed class UnifiedTerminalController : IDisposable
     {
         if (plan.PlannedAmount <= MyFixedPoint.Zero)
             return;
-        var flags = plan.Allocations
-            .SelectMany(allocation => new[]
-            {
-                allocation.Source.Descriptor,
-                allocation.DestinationDescriptor
-            })
-            .Where(descriptor => descriptor != null)
-            .GroupBy(descriptor => (descriptor.OwnerEntityId, descriptor.InventoryIndex))
-            .ToDictionary(group => group.Key, group => GetFlags(group.First()));
-        InventoryManagementFlags CapturedFlags(InventoryDescriptor descriptor) =>
-            flags.TryGetValue((descriptor.OwnerEntityId, descriptor.InventoryIndex), out var value)
-                ? value
+        // Retain profile objects, not the UI controller's session dictionary: jobs can
+        // outlive the terminal, and exclusion edits must still take effect immediately.
+        var flagProfiles = plan.Allocations.SelectMany(allocation => new[]
+            { allocation.Source.Descriptor, allocation.DestinationDescriptor })
+            .Where(descriptor => descriptor != null).Distinct().ToDictionary(descriptor => descriptor,
+                descriptor => profiles.FirstOrDefault(pair => pair.Key.Scope.Grids.Any(grid =>
+                    grid.EntityId == descriptor.Owner.CubeGrid.EntityId)).Value);
+        InventoryManagementFlags Flags(InventoryDescriptor descriptor) =>
+            flagProfiles.TryGetValue(descriptor, out var profile) && profile != null
+                ? profile.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex)
                 : InventoryManagementFlags.None;
         Plugin.Instance.Transfers.Enqueue(
             plan,
             interacted,
             MySession.Static?.LocalPlayerId ?? 0L,
-            CapturedFlags,
+            Flags,
             canContinue,
             guardFailureMessage,
             completed);
@@ -831,7 +1027,7 @@ internal sealed class UnifiedTerminalController : IDisposable
     {
         foreach (var pair in profiles)
         {
-            if (pair.Key.Scope?.Inventories.Contains(descriptor) == true)
+            if (pair.Key.Scope?.Grids.Any(grid => grid.EntityId == descriptor.Owner.CubeGrid.EntityId) == true)
                 return pair.Value.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex);
         }
         return InventoryManagementFlags.None;
@@ -842,18 +1038,17 @@ internal sealed class UnifiedTerminalController : IDisposable
     {
         if (filter == PaneFilter.All)
             return true;
-        return role.Section.Kind switch
+        return role.Members.Any(member => member.Section.Kind switch
         {
-            InventorySectionKind.UnifiedCargo => filter == PaneFilter.Storage,
+            InventorySectionKind.UnifiedCargo or InventorySectionKind.Connectors => filter == PaneFilter.Storage,
             InventorySectionKind.PowerProducers => filter == PaneFilter.Energy,
             InventorySectionKind.Weapons or InventorySectionKind.ShipTools or InventorySectionKind.SafetySystems =>
                 filter == PaneFilter.Ship,
             InventorySectionKind.Refineries or InventorySectionKind.Assemblers or InventorySectionKind.GasSystems =>
                 filter == PaneFilter.System,
-            InventorySectionKind.DefinitionFallback => role.Members.Any(member =>
-                member.Owner.InventoryOwnerType() == FilterOwnerType(filter)),
+            InventorySectionKind.DefinitionFallback => member.Owner.InventoryOwnerType() == FilterOwnerType(filter),
             _ => false
-        };
+        });
     }
 
     private static MyInventoryOwnerTypeEnum FilterOwnerType(PaneFilter filter) => filter switch

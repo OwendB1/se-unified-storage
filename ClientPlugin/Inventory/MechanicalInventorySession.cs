@@ -20,6 +20,9 @@ public sealed class MechanicalInventorySession : IDisposable
     private bool disposed;
     private bool structureDirty = true;
     private bool contentsDirty = true;
+    private string namedGroupSignature;
+    private IReadOnlyList<HashSet<long>> conveyorNetworks;
+    private string conveyorNetworkSignature;
 
     public MechanicalInventorySession(
         MechanicalInventoryScopeScanner scanner,
@@ -57,8 +60,29 @@ public sealed class MechanicalInventorySession : IDisposable
                           .SequenceEqual(Scope.Grids.Select(grid => grid.EntityId).OrderBy(id => id));
         if (changed)
             MarkStructureDirty();
+        var names = string.Join("\n", InventoryGroups.NamedGroups(Scope).OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => pair.Key + ":" + string.Join(",", pair.Value.OrderBy(id => id))));
+        if (names != namedGroupSignature)
+        {
+            namedGroupSignature = names;
+            MarkContentsDirty();
+        }
+        if (!structureDirty && conveyorNetworks != null)
+        {
+            var networks = ProjectionViewBuilder.FindConveyorNetworks(Scope);
+            var signature = string.Join(";", networks.Select(ids => string.Join(",", ids.OrderBy(id => id))));
+            conveyorNetworks = networks;
+            if (signature != conveyorNetworkSignature)
+            {
+                conveyorNetworkSignature = signature;
+                MarkContentsDirty();
+            }
+        }
         return changed;
     }
+
+    public IReadOnlyList<HashSet<long>> GetConveyorNetworks() =>
+        conveyorNetworks ??= ProjectionViewBuilder.FindConveyorNetworks(Scope);
 
     public InventoryProjection Refresh(Func<InventoryDescriptor, bool> includeInventory = null)
     {
@@ -70,6 +94,7 @@ public sealed class MechanicalInventorySession : IDisposable
                 ? scanner.Capture(interactedEntity, identityId)
                 : scanner.Capture(interactedEntity, anchorGrid, identityId);
             Attach(Scope);
+            conveyorNetworks = null;
             structureDirty = false;
             contentsDirty = true;
         }

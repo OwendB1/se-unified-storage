@@ -72,7 +72,20 @@ public static class ProjectionViewBuilder
         MechanicalInventorySession session,
         InventoryProjection projection)
     {
-        var descriptors = session.Scope.Inventories.ToArray();
+        return session.GetConveyorNetworks().Select((ids, index) => new InventoryProjectionView(
+                $"conveyor:{session.Scope.Grids.Min(grid => grid.EntityId)}:{ids.Min()}",
+                $"Network {index + 1}",
+                Filter(projection, descriptor => ids.Contains(descriptor.OwnerEntityId))))
+            .Where(view => view.Projection.Roles.Count > 0)
+            .ToArray();
+    }
+
+    internal static IReadOnlyList<HashSet<long>> FindConveyorNetworks(MechanicalInventoryScope scope)
+    {
+        // A flight seat can implement the endpoint interface without any model
+        // conveyor ports. Line count includes unconnected ports, not just links.
+        var descriptors = scope.Inventories
+            .Where(descriptor => Resolve(descriptor.Owner)?.ConveyorEndpoint?.GetLineCount() > 0).ToArray();
         var endpointGroups = new List<HashSet<long>>();
         var remaining = new HashSet<long>(descriptors.Select(descriptor => descriptor.OwnerEntityId));
         var endpoints = descriptors.GroupBy(descriptor => descriptor.OwnerEntityId)
@@ -92,16 +105,17 @@ public static class ProjectionViewBuilder
                     if (pair.Value != null && reachable.Contains(pair.Value.ConveyorEndpoint))
                         group.Add(pair.Key);
             }
+            // Opposing sorter branches can reach the same inventory. Merge those
+            // components so a physical inventory never appears in two networks.
+            foreach (var previous in endpointGroups.Where(previous => previous.Overlaps(group)).ToArray())
+            {
+                group.UnionWith(previous);
+                endpointGroups.Remove(previous);
+            }
             remaining.ExceptWith(group);
             endpointGroups.Add(group);
         }
-
-        return endpointGroups.Select((ids, index) => new InventoryProjectionView(
-                $"conveyor:{session.Scope.Grids.Min(grid => grid.EntityId)}:{ids.Min()}",
-                $"Conveyor network {index + 1}",
-                Filter(projection, descriptor => ids.Contains(descriptor.OwnerEntityId))))
-            .Where(view => view.Projection.Roles.Count > 0)
-            .ToArray();
+        return endpointGroups.OrderBy(ids => ids.Min()).ToArray();
     }
 
     private static IMyConveyorEndpointBlock Resolve(Sandbox.Game.Entities.MyCubeBlock block)
@@ -131,7 +145,7 @@ public static class ProjectionViewBuilder
                 stacks,
                 inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.CurrentMass),
                 inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.CurrentVolume),
-                inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.MaxVolume));
+                inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.MaxVolume), role.Group);
         }).Where(role => role != null).ToArray();
         return new InventoryProjection(source.Scope, roles);
     }

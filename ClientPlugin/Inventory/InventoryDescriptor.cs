@@ -22,7 +22,8 @@ public enum InventorySectionKind
     GasSystems,
     ShipTools,
     SafetySystems,
-    DefinitionFallback
+    DefinitionFallback,
+    Connectors
 }
 
 public enum InventoryRoleKind
@@ -48,7 +49,8 @@ public enum InventoryDiscoverySource
     GasGeneratorDefinition,
     ShipToolDefinition,
     ParachuteDefinition,
-    ConstraintFallback
+    ConstraintFallback,
+    Connector
 }
 
 public readonly struct InventorySectionKey : IEquatable<InventorySectionKey>
@@ -57,18 +59,24 @@ public readonly struct InventorySectionKey : IEquatable<InventorySectionKey>
         InventorySectionKind kind,
         MyDefinitionId blockDefinitionId,
         int inventoryIndex,
-        string constraintSignature)
+        string constraintSignature,
+        string groupId = null)
     {
         Kind = kind;
         BlockDefinitionId = blockDefinitionId;
         InventoryIndex = inventoryIndex;
         ConstraintSignature = constraintSignature;
+        GroupId = groupId;
     }
 
     public InventorySectionKind Kind { get; }
     public MyDefinitionId BlockDefinitionId { get; }
     public int InventoryIndex { get; }
     public string ConstraintSignature { get; }
+    public string GroupId { get; }
+
+    public InventorySectionKey InGroup(string groupId) =>
+        new(Kind, BlockDefinitionId, InventoryIndex, ConstraintSignature, groupId);
 
     public static InventorySectionKey UnifiedCargo =>
         new(InventorySectionKind.UnifiedCargo, default, -1, string.Empty);
@@ -83,7 +91,7 @@ public readonly struct InventorySectionKey : IEquatable<InventorySectionKey>
         new(InventorySectionKind.DefinitionFallback, blockDefinitionId, inventoryIndex, constraintSignature);
 
     public bool Equals(InventorySectionKey other) =>
-        Kind == other.Kind &&
+        string.Equals(GroupId, other.GroupId, StringComparison.Ordinal) && Kind == other.Kind &&
         BlockDefinitionId.Equals(other.BlockDefinitionId) &&
         InventoryIndex == other.InventoryIndex &&
         string.Equals(ConstraintSignature, other.ConstraintSignature, StringComparison.Ordinal);
@@ -98,6 +106,7 @@ public readonly struct InventorySectionKey : IEquatable<InventorySectionKey>
             hash = (hash * 397) ^ BlockDefinitionId.GetHashCode();
             hash = (hash * 397) ^ InventoryIndex;
             hash = (hash * 397) ^ (ConstraintSignature?.GetHashCode() ?? 0);
+            hash = (hash * 397) ^ (GroupId?.GetHashCode() ?? 0);
             return hash;
         }
     }
@@ -167,6 +176,16 @@ internal static class InventoryDescriptorFactory
                 inventory,
                 InventorySectionKey.UnifiedCargo,
                 InventoryDiscoverySource.CargoContainer,
+                new InventoryRoleDescriptor(InventoryRoleKind.GeneralCargo, itemId => AcceptsLive(inventory, itemId)),
+                constraintSignature);
+
+        if (owner is MyShipConnector)
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.Connectors),
+                InventoryDiscoverySource.Connector,
                 new InventoryRoleDescriptor(InventoryRoleKind.GeneralCargo, itemId => AcceptsLive(inventory, itemId)),
                 constraintSignature);
 

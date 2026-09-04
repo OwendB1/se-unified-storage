@@ -2,6 +2,8 @@
 
 This matrix separates checks that run without Space Engineers from checks which require a live Pulsar client and a synchronized world. A build alone cannot prove terminal patch compatibility, replication acknowledgement, or conveyor behavior.
 
+Results and outstanding limits from the local configurable-group/loadout UI run are recorded in [UI_E2E_VERIFICATION.md](UI_E2E_VERIFICATION.md).
+
 ## Automated checks
 
 Run on every change:
@@ -19,6 +21,7 @@ The core suite verifies deterministic greedy allocation, equalization from unequ
 Use both a local world and an unmodified multiplayer server.
 
 1. Open a cargo terminal. Confirm Unified is initially enabled, both panes render, and disabling Unified restores the complete vanilla inventory page without reopening the terminal.
+   Repeat disable/re-enable three times. In both modes, switch character/grid on both sides and exercise every filter. Confirm each selection changes the pane and re-enabling stays enabled. Close/reopen the terminal from each mode; no callbacks may remain attached to a closed vanilla controller.
 2. Re-enable Unified. Exercise All, Energy, Ship, Storage, System, search, Hide Empty, scrolling, mouse dragging, right-click amount entry, double-click, and gamepad A transfer.
 3. Verify identical components aggregate while damaged tools, bottles with different fill states, and other game-nonstackable content remain separate.
 4. Test character-to-cargo, cargo-to-character, and docked mechanical-group-to-mechanical-group transfers. Disconnect during an operation and confirm a partial/timeout notification rather than an optimistic UI mutation.
@@ -44,6 +47,9 @@ Use both a local world and an unmodified multiplayer server.
 - Verify refinery input/output and mixed weapon ammunition candidates never cross roles or incompatible constraints.
 - Confirm repeated Rebalance is disabled while the transfer queue is active and the captured policy does not change mid-operation.
 - Switch to terminal block-group and conveyor-component scope modes. Transfer between distinct views and confirm same-view drops are no-ops.
+- Scope dropdowns: access different hatches/constructs, check the accessed network is selected and ordered first, duplicate ship names are distinguishable, and each pane renders only its chosen scope. Check whole-construct versus network totals, independent left/right selection, search/filter and suit/grid retention, and clean vanilla fallback. With one construct and one network, no extra row should appear. With multiple choices, verify search/selector/inventory bounds do not overlap.
+- Change conveyor topology while the terminal is open, including opposing sorter branches. Confirm network membership updates, inventories do not appear in two networks, and a vanished selection falls back safely. A network label must never bypass per-item access, sorter or tube-size checks.
+- Portless inventories (including flight seats that implement a conveyor endpoint with zero ports) must not create network dropdown entries. Disconnected single blocks with actual conveyor ports remain selectable. Whole-construct views still include eligible portless inventories.
 - Split and merge a mechanical construct, attach rotor/piston/hinge/suspension subgrids, and connector-dock a second construct. Confirm mechanical scopes rebuild without merging the docked constructs.
 
 ## Refinery priority
@@ -66,7 +72,9 @@ Use both a local world and an unmodified multiplayer server.
 ## Loadouts and utilities
 
 - Test per-member and section-total rules on vanilla and modded constrained blocks, partial cargo stock, excess returns, non-working opt-in, and Manual/Reserved exclusions.
-- Confirm a loadout sources deficits only from Unified Cargo and never steals from another loadout.
+- Confirm a loadout uses its configured supply and excess-return groups, respects disabled directions, and never steals from another loadout's targets.
+- Exercise per-inventory and group-total targets, overlapping-target conflicts, missing groups, target/role changes, and maintained rules with the terminal closed.
+- Confirm the loadout table updates its status after transfers without closing the screen or losing row selection.
 - Refill empty oxygen and hydrogen bottles through a tank and generator. Confirm the explicit refill request, replicated gas-level wait, original-inventory return, fallback/stranded report, disconnection, and timeout paths. Partially filled bottles remain excluded until both filler paths are verified.
 - Drain an idle assembly-mode assembler, then repeat while adding a queue entry or switching to disassembly after clicking. Confirm the live guard skips it without changing its queue or mode.
 
