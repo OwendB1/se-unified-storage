@@ -1,64 +1,14 @@
 <?xml version="1.0"?>
 <PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
-
-    <!-- The ID of your plugin, never change this -->
     <Id>4BD38E0B-20BC-4797-A011-44B59E928DA4</Id>
-
-    <!-- GitHub repository ID -->
     <RepoId>OwendB1/se-unified-storage</RepoId>
-
-    <!-- The name of your plugin that will appear in the plugin list -->
     <FriendlyName>Unified Storage</FriendlyName>
-
-    <!-- The author name that you want to appear in the plugin list -->
     <Author>Owen de Bree</Author>
-
-    <!-- Optional tooltip for the plugin in the plugin list -->
-    <Tooltip>One projected ship-wide inventory with safe, definition-driven distribution.</Tooltip>
-
-    <!-- Optional plugin description. If omitted, this will be the same as the Tooltip. 1000 characters max. -->
-    <Description>Replaces the grid-side terminal inventory with a unified view while keeping every item in its real container. Supports definition-derived modded inventories, placement policies, refinery priority, component targets, loadouts, cross-scope transfers, and a one-click vanilla fallback. Works with unmodified servers.</Description>
-
-    <!-- Only source code in the Directory entries listed in SourceDirectories is compiled. Exclude any test projects or similar. -->
+    <Tooltip>One projected ship-wide inventory with definition-driven distribution and a vanilla UI fallback.</Tooltip>
+    <Description>Replaces the grid-side terminal inventory with a unified view while keeping every item in its real container. Includes configurable inventory groups, vanilla and modded inventory support, placement policies, refinery ore priorities, component production targets, loadouts, and transfers between distinct mechanical ship groups when conveyors permit them. Works with unmodified servers; no programmable block or server companion is required. The Unified toggle restores the vanilla inventory UI. An optional Magnetar companion adds shared ship settings.</Description>
     <SourceDirectories>
         <Directory>ClientPlugin</Directory>
         <Directory>Shared</Directory>
     </SourceDirectories>
-
-    <!-- To specify asset files to be copied onto disk, use the AssetFolder tag.
-    <AssetFolder>Project/Assets/</AssetFolder>
-    -->
-
-    <!-- To specify a required NuGet package, use either a list of PackageReference tags OR a Config tag.
-    <NuGetReferences>
-      <PackageReference Include="OVRSharp" Version="1.2.0" />
-    </NuGetReferences> 
-    -->
-
-    <!-- Optional tag that restricts the plugin to specific runtimes (case sensitive: NETFramework, NETCoreApp). List multiple, comma separated. If omitted, the runtime is detected from the compiled assembly.
-    <Runtimes>NETFramework,NETCoreApp</Runtimes>
-    -->
-
-    <!-- Optional tag that restricts the plugin to specific platforms (case sensitive: Windows, Linux). List multiple, comma separated. If omitted, the plugin loads on all platforms.
-    <Platforms>Windows,Linux</Platforms>
-    -->
-
-    <!-- Optional tag that specifies whether the plugin is hidden. Hidden plugins only appear when they are enabled or searched for in the search box.
-    <Hidden>true</Hidden>
-    -->
-
-    <!-- Replace with the release commit when submitting this file to PluginHub. -->
-    <Commit>0000000000000000000000000000000000000000</Commit>
-
-    <!-- Optional list of alternate versions of the plugin, use it for test or custom builds
-    <AlternateVersions>
-      <Version>
-        <Name>Version Name</Name>
-        <Commit>Commit hash</Commit>
-      </Version>
-    </AlternateVersions> 
-    -->
-
-    <!-- Feel free to delete the comments and the commented out optional blocks once you're done. -->
-
+    <Commit>546f5cd5d215100d82c1e4c8ef335760fbea8982</Commit>
 </PluginData>

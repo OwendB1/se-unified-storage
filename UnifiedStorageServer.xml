@@ -1,70 +1,14 @@
 <?xml version="1.0"?>
 <PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
-
-    <!-- The ID of your plugin, never change this -->
     <Id>4BD38E0B-20BC-4797-A011-44B59E928DA4</Id>
-
-    <!-- GitHub repository ID -->
     <RepoId>OwendB1/se-unified-storage</RepoId>
-
-    <!-- The name of your plugin that will appear in the plugin list -->
     <FriendlyName>Unified Storage Server Companion</FriendlyName>
-
-    <!-- The author name that you want to appear in the plugin list -->
-    <Author>Unified Storage contributors</Author>
-
-    <!-- Optional tooltip for the plugin in the plugin list -->
-    <Tooltip>Optional revisioned shared ship settings for the Unified Storage client plugin.</Tooltip>
-
-    <!-- Optional plugin description. If omitted, this will be the same as the Tooltip. 1000 characters max. -->
-    <Description>Persistence-only companion for Unified Storage. Adds authenticated discovery and shared ship profiles with owner-controlled publication and optional faction reading. Client-only inventory operation remains available. Authoritative transfers and unattended server automation are not implemented yet.</Description>
-
-    <!-- Only source code in the Directory entries listed in SourceDirectories is compiled. Exclude any test projects or similar. -->
+    <Author>Owen de Bree</Author>
+    <Tooltip>Experimental, optional shared ship settings for the Unified Storage client plugin.</Tooltip>
+    <Description>Experimental persistence-only companion for Unified Storage, loaded by Magnetar. Adds authenticated discovery, revisioned world-local ship profiles, owner-controlled publication, optional faction reading, and explicit client adoption. Shared settings include inventory groups, exclusions, refinery priorities, component targets and loadouts. Operator configuration uses Magnetar PluginSdk. The client remains usable without this companion. Authoritative transfers and unattended server automation are not implemented. Live dedicated-server multiplayer acceptance testing is still pending; use a test server first.</Description>
     <SourceDirectories>
         <Directory>ServerPlugin</Directory>
         <Directory>Shared</Directory>
     </SourceDirectories>
-
-    <!-- To specify asset files to be copied onto disk, use the AssetFolder tag.
-    <AssetFolder>Project/Assets/</AssetFolder>
-    -->
-
-    <!-- To specify a required NuGet package, use either a list of PackageReference tags OR a Config tag.
-    <NuGetReferences>
-      <PackageReference Include="OVRSharp" Version="1.2.0" />
-    </NuGetReferences> 
-    -->
-
-    <!-- Optional tag that specifies what dependencies this plugin has. Dependencies will be automatically enabled when this plugin is enabled.
-    <DependencyIds>
-      <Id>TODO ID of the plugin this one depends on</Id>
-    </DependencyIds> 
-    -->
-
-    <!-- Optional tag that restricts the plugin to specific runtimes (case sensitive: NETFramework, NETCoreApp). List multiple, comma separated. If omitted, the runtime is detected from the compiled assembly.
-    <Runtimes>NETFramework,NETCoreApp</Runtimes>
-    -->
-
-    <!-- Optional tag that restricts the plugin to specific platforms (case sensitive: Windows, Linux). List multiple, comma separated. If omitted, the plugin loads on all platforms.
-    <Platforms>Windows,Linux</Platforms>
-    -->
-
-    <!-- Optional tag that specifies whether the plugin is hidden. Hidden plugins only appear when they are enabled or searched for in the search box.
-    <Hidden>true</Hidden>
-    -->
-
-    <!-- The current plugin version's commit hash -->
-    <Commit>TODO Git commit hash</Commit>
-
-    <!-- Optional list of alternate versions of the plugin, use it for test or custom builds
-    <AlternateVersions>
-      <Version>
-        <Name>Version Name</Name>
-        <Commit>Commit hash</Commit>
-      </Version>
-    </AlternateVersions> 
-    -->
-
-    <!-- Feel free to delete the comments and the commented out optional blocks once you're done -->
-
+    <Commit>546f5cd5d215100d82c1e4c8ef335760fbea8982</Commit>
 </PluginData>
