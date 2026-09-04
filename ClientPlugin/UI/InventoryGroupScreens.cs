@@ -93,6 +93,8 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
                     Save();
                 }));
         }));
+        Controls.Add(Button("Shared profile", new Vector2(0, 0.34f),
+            () => MyGuiSandbox.AddScreen(new SharedProfileScreen(session, profile, () => RecreateControls(false))), 0.2f));
         Controls.Add(Button("Close", new Vector2(0.24f, 0.34f), () => CloseScreen()));
     }
 

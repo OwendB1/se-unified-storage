@@ -1,19 +1,16 @@
-﻿using System;
+using System;
+using System.ComponentModel;
 using System.IO;
 using System.Threading;
-using HarmonyLib;
-using Shared.Config;
-using Shared.Logging;
-using Shared.Patches;
-using Shared.Plugin;
+using PluginSdk.Config;
+using PluginSdk.Logging;
+using Sandbox.Game.Multiplayer;
+using Sandbox.Game.World;
 using VRage.FileSystem;
-using VRage.Game;
 using VRage.Plugins;
 
-// Define assembly version when compiled by Magnetar
 #if !LOCAL_BUILD
 using System.Reflection;
-
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
 #endif
@@ -21,88 +18,71 @@ using System.Reflection;
 namespace ServerPlugin;
 
 // ReSharper disable once UnusedType.Global
-public class Plugin : IPlugin, ICommonPlugin
+public sealed class Plugin : IPlugin
 {
     public const string Name = "UnifiedStorage";
-    public static Plugin Instance { get; private set; }
+    private readonly Logger log = Logger.Create(Name);
+    private readonly CompanionStats stats = new();
+    private CompanionServer server;
+    private MySession session;
+    private string configPath;
+    private int configDirty;
+    public CompanionConfig PluginConfig { get; private set; } = new();
 
-    public long Tick { get; private set; }
-    private static bool failed;
-
-    public IPluginLogger Log => Logger;
-    private static readonly IPluginLogger Logger = new PluginLogger(Name);
-
-    public IPluginConfig Config => config?.Data;
-    private PersistentConfig<PluginConfig> config;
-    private static readonly string ConfigFileName = $"{Name}.cfg";
-
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     public void Init(object gameInstance)
     {
-#if DEBUG
-        // Allow the debugger some time to connect once the plugin assembly is loaded
-        Thread.Sleep(100);
-#endif
-
-        Instance = this;
-
-        Log.Info("Loading");
-
-        var configPath = Path.Combine(MyFileSystem.UserDataPath, ConfigFileName);
-        config = PersistentConfig<PluginConfig>.Load(Log, configPath);
-
-        var gameVersion = MyFinalBuildConstants.APP_VERSION_STRING.ToString();
-        Common.SetPlugin(this, gameVersion, MyFileSystem.UserDataPath);
-
-        if (!PatchHelpers.HarmonyPatchAll(Log, new Harmony(Name)))
+        configPath = Path.Combine(MyFileSystem.UserDataPath, "UnifiedStorage.companion.cfg");
+        try { PluginConfig = ConfigStorage.LoadXml<CompanionConfig>(configPath); }
+        catch (Exception exception)
         {
-            failed = true;
-            return;
+            PluginConfig.Enabled = false;
+            log.Error("Companion config failed to load; disabled, existing file preserved", exception);
+            configPath = null;
         }
-
-        Log.Debug("Successfully loaded");
-    }
-
-    public void Dispose()
-    {
-        try
-        {
-            // TODO: Save state and close resources here, called when the game exists (not guaranteed!)
-            // IMPORTANT: Do NOT call harmony.UnpatchAll() here! It may break other plugins.
-        }
-        catch (Exception ex)
-        {
-            Log.Critical(ex, "Dispose failed");
-        }
-
-        Instance = null;
+        PluginConfig.PropertyChanged += ConfigChanged;
+        MySession.OnUnloading += Unloading;
+        log.Info("Companion loaded; shared profiles only. Authoritative transfers and automation are not enabled.");
     }
 
     public void Update()
     {
-        if (failed)
-            return;
-        
-#if DEBUG
-        CustomUpdate();
-        Tick++;
-#else        
+        if (Interlocked.Exchange(ref configDirty, 0) != 0) SaveConfig();
+        var current = MySession.Static;
+        if (current == null || !current.Ready || !Sync.IsServer) return;
         try
         {
-            CustomUpdate();
-            Tick++;
+            if (!ReferenceEquals(session, current))
+            {
+                Unloading();
+                session = current;
+                server = new CompanionServer(current, PluginConfig, log, stats);
+            }
+            server?.Update();
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            Log.Critical(e, "Update failed");
-            failed = true;
+            log.Error("Companion stopped for this world after an unexpected failure", exception);
+            server?.Dispose();
+            server = null;
         }
-#endif       
     }
 
-    private void CustomUpdate()
+    private void ConfigChanged(object sender, PropertyChangedEventArgs args) => Interlocked.Exchange(ref configDirty, 1);
+    private void SaveConfig()
     {
-        // TODO: Put your update code here. It is called on every simulation frame!
-        PatchHelpers.PatchUpdates();
+        if (configPath == null) return;
+        try { ConfigStorage.SaveXml(PluginConfig, configPath); }
+        catch (Exception exception) { log.Error("Failed to save companion operator configuration", exception); }
+    }
+    private void Unloading()
+    {
+        server?.Dispose(); server = null; session = null;
+    }
+    public void Dispose()
+    {
+        MySession.OnUnloading -= Unloading;
+        PluginConfig.PropertyChanged -= ConfigChanged;
+        Unloading();
+        if (Interlocked.Exchange(ref configDirty, 0) != 0) SaveConfig();
     }
 }

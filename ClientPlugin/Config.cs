@@ -5,13 +5,6 @@ using ClientPlugin.Settings.Elements;
 
 namespace ClientPlugin;
 
-public enum DistributionPolicy
-{
-    ExistingStackFirst,
-    FillFirst,
-    EvenByItem
-}
-
 public enum InventoryScopeMode
 {
     MechanicalGroups,

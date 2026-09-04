@@ -16,7 +16,9 @@ The current client implementation includes:
 - generic loadouts with target/supply/return groups, overlap conflict protection, explicit empty-bottle refill jobs, and idle-assembler draining;
 - bounded, acknowledgement-driven execution with access, capacity, constraint, and vanilla-equivalent conveyor reachability checks before every transfer.
 
-The plugin is fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. The prospective server-side augmentation is intentionally separate; see [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
+The plugin works fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. An optional Magnetar companion now implements the first server milestone: secure discovery and revisioned, world-local shared settings. Authoritative transfers and server-owned automation remain planned; see [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
+
+The client entry point is **Inventory groups → Shared profile**. Fetch and inspect a server snapshot, explicitly publish local settings, or adopt a fetched revision. Only the profile owner can publish; faction members may read when sharing and operator policy allow it. Adoption keeps unmatched private groups, writes a separate local backup, and leaves maintenance switches off. No companion means this feature is unavailable; normal inventory operations remain unchanged.
 
 ## Build and test
 
@@ -28,6 +30,14 @@ dotnet run --project Tests/UnifiedStorage.CoreTests.csproj -c Release
 ```
 
 Omit `RunPostBuildEvent=Never` when you want the template build to deploy the plugin into Pulsar's local plugin folder. The implementation plan and in-game verification matrix are in [CLIENT_PLUGIN_PLAN.md](Docs/CLIENT_PLUGIN_PLAN.md) and [CLIENT_PLUGIN_TEST_MATRIX.md](Docs/CLIENT_PLUGIN_TEST_MATRIX.md).
+
+To build the optional companion, install the Space Engineers Dedicated Server and Magnetar, then run:
+
+```sh
+dotnet build ServerPlugin/ServerPlugin.csproj -c Release -p:RunPostBuildEvent=Never
+```
+
+The companion's operator settings use Magnetar PluginSdk (`UnifiedStorage.companion.cfg`); ship settings live separately in the world's `Storage/UnifiedStorage.server-profiles.xml`. Builds have been checked, but this first milestone still needs a live dedicated-server multiplayer acceptance pass before production deployment. See [SERVER_COMPANION_IMPLEMENTATION.md](Docs/SERVER_COMPANION_IMPLEMENTATION.md) for implemented limits and the remaining work.
 
 ## Safety boundary
 

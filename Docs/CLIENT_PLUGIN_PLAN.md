@@ -1,6 +1,6 @@
 # Unified Ship Storage Client Plugin Plan
 
-This document covers only the Pulsar client plugin operating against an unmodified Space Engineers server. A possible future server-side extension is outside this implementation scope and is documented separately in [SERVER_COMPANION_PLAN.md](SERVER_COMPANION_PLAN.md).
+This document covers only the Pulsar client plugin operating against an unmodified Space Engineers server. The optional server-side extension is outside this implementation scope and is documented separately in [SERVER_COMPANION_PLAN.md](SERVER_COMPANION_PLAN.md). Its initial discovery/shared-profile integration is tracked in [SERVER_COMPANION_IMPLEMENTATION.md](SERVER_COMPANION_IMPLEMENTATION.md); it does not change the standalone requirements below.
 
 ## Goal
 
@@ -448,7 +448,7 @@ Dragging between distinct configurable groups on the same mechanical ship uses t
 
 ## Optional companion transport boundary
 
-Future companion discovery uses the vanilla mod-message channel exposed by `MyAPIGateway.Multiplayer` / `MyModAPIHelper.MyMultiplayer`, not plugin-defined network events. An unmodified server silently drops an unknown message-channel ID, preserving the client-only fallback without requiring matching event tables.
+Optional companion discovery uses the vanilla mod-message channel exposed by `MyAPIGateway.Multiplayer` / `MyModAPIHelper.MyMultiplayer`, not plugin-defined network events. An unmodified server silently drops an unknown message-channel ID, preserving the client-only fallback without requiring matching event tables.
 
 Companion acknowledgements never replace replicated game state as the UI's source of truth. After a batched result, refresh from the real replicated inventories and queues. If a known companion times out on an in-flight request, do not replay that request through vanilla transfers: refresh state and report **unknown outcome**. Only later, newly initiated operations may use the client-only path, which prevents a slow companion response from double-moving items.
 

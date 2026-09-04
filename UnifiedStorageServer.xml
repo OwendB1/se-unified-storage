@@ -5,24 +5,19 @@
     <Id>4BD38E0B-20BC-4797-A011-44B59E928DA4</Id>
 
     <!-- GitHub repository ID -->
-    <RepoId>todo-github-user/project-name</RepoId>
+    <RepoId>OwendB1/se-unified-storage</RepoId>
 
     <!-- The name of your plugin that will appear in the plugin list -->
-    <FriendlyName>TODO UnifiedStorageServer</FriendlyName>
+    <FriendlyName>Unified Storage Server Companion</FriendlyName>
 
     <!-- The author name that you want to appear in the plugin list -->
-    <Author>TODO Author Name</Author>
+    <Author>Unified Storage contributors</Author>
 
     <!-- Optional tooltip for the plugin in the plugin list -->
-    <Tooltip>TODO Short description</Tooltip>
+    <Tooltip>Optional revisioned shared ship settings for the Unified Storage client plugin.</Tooltip>
 
     <!-- Optional plugin description. If omitted, this will be the same as the Tooltip. 1000 characters max. -->
-    <Description>TODO Long description, multiple lines.
-
-        This text is shown on the plugin details panel in a scrollable text box.
-
-        You can use links here, players can click on them. For example, add a Discord invite.
-    </Description>
+    <Description>Persistence-only companion for Unified Storage. Adds authenticated discovery and shared ship profiles with owner-controlled publication and optional faction reading. Client-only inventory operation remains available. Authoritative transfers and unattended server automation are not implemented yet.</Description>
 
     <!-- Only source code in the Directory entries listed in SourceDirectories is compiled. Exclude any test projects or similar. -->
     <SourceDirectories>

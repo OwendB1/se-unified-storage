@@ -12,34 +12,6 @@ using VRage.Game;
 
 namespace ClientPlugin.Inventory;
 
-public enum InventorySectionKind
-{
-    UnifiedCargo,
-    Weapons,
-    PowerProducers,
-    Refineries,
-    Assemblers,
-    GasSystems,
-    ShipTools,
-    SafetySystems,
-    DefinitionFallback,
-    Connectors
-}
-
-public enum InventoryRoleKind
-{
-    GeneralCargo,
-    Ammunition,
-    Fuel,
-    ProductionInput,
-    ProductionOutput,
-    GasGeneratorFuel,
-    Bottles,
-    ToolInventory,
-    ParachuteMaterial,
-    Unknown
-}
-
 public enum InventoryDiscoverySource
 {
     CargoContainer,

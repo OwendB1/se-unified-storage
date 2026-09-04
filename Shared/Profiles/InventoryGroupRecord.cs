@@ -9,7 +9,7 @@ public enum InventoryGroupSelector
     All, Family, BlockType, BlockDefinition, TerminalGroup, Block, RecipeOutput
 }
 
-// A selector is persisted, never its resolved membership. List order is display order.
+// Shared intent schema: a selector is persisted, never resolved membership.
 public sealed class InventoryGroupRecord
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");

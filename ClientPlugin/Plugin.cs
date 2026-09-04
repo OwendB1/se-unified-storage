@@ -41,6 +41,7 @@ public class Plugin : IPlugin, ICommonPlugin
     public ProductionQueueExecutor ProductionQueue { get; private set; }
     public BottleRefillCoordinator BottleRefills { get; private set; }
     public LocalAutomationService Automation { get; private set; }
+    public Companion.CompanionClient Companion { get; private set; }
     public long Tick { get; private set; }
     private static bool failed;
 
@@ -81,6 +82,7 @@ public class Plugin : IPlugin, ICommonPlugin
             ProductionQueue = new ProductionQueueExecutor();
             BottleRefills = new BottleRefillCoordinator();
             Automation = new LocalAutomationService(InventoryScopes, Profiles);
+            Companion = new Companion.CompanionClient();
         }
         catch (Exception ex)
         {
@@ -105,6 +107,7 @@ public class Plugin : IPlugin, ICommonPlugin
             global::ClientPlugin.Config.Current.PropertyChanged -= ClientConfigChanged;
             ConfigStorage.Save(global::ClientPlugin.Config.Current);
             Profiles?.Save();
+            Companion?.Dispose();
             Automation?.Dispose();
             BottleRefills?.Clear();
             Transfers?.Clear("plugin unloaded");
@@ -126,6 +129,7 @@ public class Plugin : IPlugin, ICommonPlugin
         ProductionQueue = null;
         BottleRefills = null;
         Automation = null;
+        Companion = null;
     }
 
     private static void ClientConfigChanged(object sender, PropertyChangedEventArgs e) =>
@@ -156,6 +160,7 @@ public class Plugin : IPlugin, ICommonPlugin
     private void CustomUpdate()
     {
         PatchHelpers.PatchUpdates();
+        Companion?.Update();
         Transfers?.Update();
         RefinerySorts?.Update();
         ProductionQueue?.Update();

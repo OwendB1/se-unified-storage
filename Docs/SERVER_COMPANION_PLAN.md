@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is a separate, optional future project. It is not required by the client-only implementation in [CLIENT_PLUGIN_PLAN.md](CLIENT_PLUGIN_PLAN.md), and the client must remain functional against an unmodified Space Engineers server.
+This is a separate, optional companion. Implementation has started with secure discovery and persistence-only shared profiles; authoritative inventory operations and server-owned automation are not implemented yet. See [SERVER_COMPANION_IMPLEMENTATION.md](SERVER_COMPANION_IMPLEMENTATION.md) for the exact implemented subset, current limits, verification and next steps. It is not required by the client-only implementation in [CLIENT_PLUGIN_PLAN.md](CLIENT_PLUGIN_PLAN.md), and the client must remain functional against an unmodified Space Engineers server.
 
 The companion consists of a Magnetar server plugin plus the smallest corresponding integration in the Pulsar client plugin. It does not replace the unified client UI or create a real virtual inventory. Its purpose is to augment the complete client-only feature set with authoritative batching, shared settings, cross-client coordination, unattended automation, validation, and observability.
 
@@ -76,7 +76,7 @@ Each management override identifies a block entity and, where relevant, inventor
 
 Persist a named terminal group's **name within the anchored ship profile**, never its resolved block IDs. Resolve live server membership for every operation; filter terminal systems to that mechanical ship so docked grids cannot leak into same-name groups. New members participate automatically. Missing or renamed groups pause affected rules with **Group not found**, never broaden to the whole ship. Only specific-block selectors persist entity IDs. Definition/type selectors retain their full identifiers. Unknown definitions and missing groups remain repairable records.
 
-Existing client preset IDs and custom IDs survive sharing, rename and reordering. Do not overwrite private groups when adopting or publishing: apply the existing explicit adoption/revision flow. Restore-defaults and delete-group mutations must be revision-checked, and deleting a group retains paused referencing rules. Protocol work remains future augmentation; the standalone client implementation already persists and evaluates these records locally.
+Existing client preset IDs and custom IDs survive sharing, rename and reordering. Do not overwrite private groups when adopting or publishing: apply the existing explicit adoption/revision flow. Restore-defaults and delete-group mutations must be revision-checked, and deleting a group retains paused referencing rules. The first companion implementation shares this intent schema with the standalone client; granular remote editing and server evaluation remain later steps.
 
 Do not persist inventory manifests, computed scarcity scores, the automatically discovered mod ore list, current stock, queue contents, capacities, conveyor reachability, or transient bottle/drain jobs. Rebuild those from authoritative live state. Store definition IDs as their full type/subtype pair; if a mod is temporarily absent, retain the unknown entry as inactive rather than deleting it. Ignore stale block-entity overrides after destruction and retain them only for the same orphan-retention window as their profile; never reattach them by display name.
 
@@ -232,6 +232,8 @@ Useful runtime statistics include accepted and rejected intents, profile loads a
 
 ## Implementation order
 
+The initial implementation covers discovery, the bounded request journal, and a persistence-only profile vertical slice. The remaining steps below are still the full target plan, not a claim of completion. Initial profile publication is a compare-and-swap snapshot, not yet the granular field-patch protocol. Settings larger than 32 KiB are explicitly rejected until paged transport is implemented.
+
 1. Finish and validate the complete client-only transfer, exclusions, refinery-priority, and component-target paths.
 2. Define the fixed secure mod-message channel, magic/version envelope, payload limit, proactive and client-initiated handshake, and independent transfer, settings, refinery-automation, target-automation, loadout-automation, and utility-job flags.
 3. Implement request-ID idempotency and cached results before adding mutations; distinguish handshake fallback from an in-flight **unknown outcome**.
@@ -249,3 +251,12 @@ Useful runtime statistics include accepted and rejected intents, profile loads a
 15. Test companion absence, late discovery, partial capability sets, version mismatch, oversized/paged messages, disconnects, duplicate IDs, unknown outcomes, stale stacks, destroyed blocks, sorter and tube-size changes, full destinations, simultaneous editors, two automation clients, ownership/faction/admin-policy changes, server restart, profile split/merge, blueprint paste, missing mods, utility-job interruption, and world save/unload.
 
 Transfer tests must compare companion decisions with the vanilla client for both endpoint rights, proximity and replication-dependency access, 2 km separation, direction, sorters, tube size, constraints, capacity, partial fits, and admins. Automation tests must cover swap-based refinery ordering, content-based assembler queue acknowledgement, cooperative and disassembly exclusions, maximum queue length, ownership-change pauses, and bounded reachability work. Bottle tests must explicitly exercise empty and partially filled stacks in both tanks and generators; drain tests must race queue and mode changes. Persistence tests must cover save snapshots, unload flush, lazy load binding, split/merge bursts, destroyed anchors, and pasted grids.
+
+## Additional implementation optimizations
+
+- Share the actual profile DTOs, enums and migration code between client and server rather than maintaining two schemas. Keep the existing XML names for local-file compatibility.
+- Coalesce settings-change notifications per connected reader. Send only profile identity and revision, then fetch full settings on demand. Recheck authorization when sending, and process a bounded number of readers per update.
+- Bound inbound bytes, per-sender backlog, global backlog, processing rate and cached-result memory independently. Reject work before mutation when the result journal is full; never evict a still-replayable result to make room.
+- Bind requests to a world-session epoch and a short server-time deadline. An expired request must not become executable after its cached result is pruned. Handshake establishes the clock offset so client wall-clock skew does not cause immediate rejection.
+- Cache XML serializers and debounce world-profile writes. Profile changes contain intent only; no inventory manifest is scanned or serialized for settings persistence.
+- Reuse the game's native terminal access/ownership validator for settings access. This does not substitute for the additional conveyor, distance, endpoint and mutation checks required by future transfer intents.
