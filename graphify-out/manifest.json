@@ -1,0 +1,392 @@
+{
+  "ClientPlugin/Automation/BottleRefillCoordinator.cs": {
+    "mtime": 1788385095.901241,
+    "ast_hash": "0375fed0c9930ce0db47245a31b50823",
+    "semantic_hash": "0375fed0c9930ce0db47245a31b50823"
+  },
+  "ClientPlugin/Automation/ComponentTargetEngine.cs": {
+    "mtime": 1788385408.1915574,
+    "ast_hash": "d67df86b6ab8c6013cea87b86398ed1c",
+    "semantic_hash": "d67df86b6ab8c6013cea87b86398ed1c"
+  },
+  "ClientPlugin/Automation/DrainAssemblerEngine.cs": {
+    "mtime": 1788384369.724288,
+    "ast_hash": "d5ff09e638696723809d36a3dff141f0",
+    "semantic_hash": "d5ff09e638696723809d36a3dff141f0"
+  },
+  "ClientPlugin/Automation/LoadoutEngine.cs": {
+    "mtime": 1788385274.53399,
+    "ast_hash": "6b88c3cb5cb302ba029151a62c9cc009",
+    "semantic_hash": "6b88c3cb5cb302ba029151a62c9cc009"
+  },
+  "ClientPlugin/Automation/LocalAutomationService.cs": {
+    "mtime": 1788385210.3111587,
+    "ast_hash": "7a49478c3a2feca1a533e3b14a37d40a",
+    "semantic_hash": "7a49478c3a2feca1a533e3b14a37d40a"
+  },
+  "ClientPlugin/Automation/ProductionQueueExecutor.cs": {
+    "mtime": 1788384935.632134,
+    "ast_hash": "61696497d4f7bff3e8d54427bb80e91a",
+    "semantic_hash": "61696497d4f7bff3e8d54427bb80e91a"
+  },
+  "ClientPlugin/Automation/ProjectionOrdering.cs": {
+    "mtime": 1788383906.624596,
+    "ast_hash": "32211da7a55448aee400d28c71ef9da8",
+    "semantic_hash": "32211da7a55448aee400d28c71ef9da8"
+  },
+  "ClientPlugin/Automation/RefineryPriorityEngine.cs": {
+    "mtime": 1788385203.1032898,
+    "ast_hash": "b52fb47c398e77659b18aa4c581666a9",
+    "semantic_hash": "b52fb47c398e77659b18aa4c581666a9"
+  },
+  "ClientPlugin/Automation/RefinerySortExecutor.cs": {
+    "mtime": 1788384577.7045562,
+    "ast_hash": "c57ff6253848c19662f3261322dc206e",
+    "semantic_hash": "c57ff6253848c19662f3261322dc206e"
+  },
+  "ClientPlugin/ClientPlugin.csproj": {
+    "mtime": 1788379418.5870123,
+    "ast_hash": "da8bbfba1babe87b4c8a991b30a49f4a",
+    "semantic_hash": "da8bbfba1babe87b4c8a991b30a49f4a"
+  },
+  "ClientPlugin/Config.cs": {
+    "mtime": 1788384006.7298014,
+    "ast_hash": "3b352e4a4ec995400a8bb26fc9c3916e",
+    "semantic_hash": "3b352e4a4ec995400a8bb26fc9c3916e"
+  },
+  "ClientPlugin/Inventory/InventoryDescriptor.cs": {
+    "mtime": 1788385230.0288,
+    "ast_hash": "8639be4a9d5059fa0f33f05dafa3b580",
+    "semantic_hash": "8639be4a9d5059fa0f33f05dafa3b580"
+  },
+  "ClientPlugin/Inventory/InventoryProjection.cs": {
+    "mtime": 1788382832.4978576,
+    "ast_hash": "06eb03f390693bec7cda78d3c763bbc5",
+    "semantic_hash": "06eb03f390693bec7cda78d3c763bbc5"
+  },
+  "ClientPlugin/Inventory/MechanicalInventoryScope.cs": {
+    "mtime": 1788384819.1642237,
+    "ast_hash": "5d3933ad8bff8d7e2d6cac2ebd52e171",
+    "semantic_hash": "5d3933ad8bff8d7e2d6cac2ebd52e171"
+  },
+  "ClientPlugin/Inventory/MechanicalInventorySession.cs": {
+    "mtime": 1788384796.0366387,
+    "ast_hash": "1e489bb7a573e12d64ae804ba518be77",
+    "semantic_hash": "1e489bb7a573e12d64ae804ba518be77"
+  },
+  "ClientPlugin/Inventory/ProjectionViewBuilder.cs": {
+    "mtime": 1788384006.7308013,
+    "ast_hash": "b8256129f9eaaafc0172f8379e585fd8",
+    "semantic_hash": "b8256129f9eaaafc0172f8379e585fd8"
+  },
+  "ClientPlugin/Plugin.cs": {
+    "mtime": 1788385170.2138884,
+    "ast_hash": "094bba0683a52de7a9f1b8f37fab70a7",
+    "semantic_hash": "094bba0683a52de7a9f1b8f37fab70a7"
+  },
+  "ClientPlugin/Profiles/LocalProfileStore.cs": {
+    "mtime": 1788383954.6047354,
+    "ast_hash": "05f340a3ca332b2e0955918439321935",
+    "semantic_hash": "05f340a3ca332b2e0955918439321935"
+  },
+  "ClientPlugin/Profiles/ProfileIdentity.cs": {
+    "mtime": 1788383954.6047354,
+    "ast_hash": "c32ef24c3b0a6218ffadbfe95783a45e",
+    "semantic_hash": "c32ef24c3b0a6218ffadbfe95783a45e"
+  },
+  "ClientPlugin/Settings/ConfigStorage.cs": {
+    "mtime": 1788382549.8919082,
+    "ast_hash": "791361ab02161763d97b4673f5fab076",
+    "semantic_hash": "791361ab02161763d97b4673f5fab076"
+  },
+  "ClientPlugin/Settings/Elements/Button.cs": {
+    "mtime": 1780666489.4755366,
+    "ast_hash": "13b87f0beb2c8161b5ebe58d358cec02",
+    "semantic_hash": "13b87f0beb2c8161b5ebe58d358cec02"
+  },
+  "ClientPlugin/Settings/Elements/Checkbox.cs": {
+    "mtime": 1780666489.4755948,
+    "ast_hash": "d986c68fc17a01b78d6f4dc396d5d479",
+    "semantic_hash": "d986c68fc17a01b78d6f4dc396d5d479"
+  },
+  "ClientPlugin/Settings/Elements/Color.cs": {
+    "mtime": 1780666489.4755948,
+    "ast_hash": "2bf80d54193c67972db5b8df31dece42",
+    "semantic_hash": "2bf80d54193c67972db5b8df31dece42"
+  },
+  "ClientPlugin/Settings/Elements/Control.cs": {
+    "mtime": 1780666489.4756489,
+    "ast_hash": "e217cc9ff8edb0470ca490b269154e20",
+    "semantic_hash": "e217cc9ff8edb0470ca490b269154e20"
+  },
+  "ClientPlugin/Settings/Elements/Dropdown.cs": {
+    "mtime": 1780666489.4756732,
+    "ast_hash": "93f578bab992eded2755d64779fc7f79",
+    "semantic_hash": "93f578bab992eded2755d64779fc7f79"
+  },
+  "ClientPlugin/Settings/Elements/Element.cs": {
+    "mtime": 1780666489.4756925,
+    "ast_hash": "83e1494df5881baaf3484a0b1360f0e5",
+    "semantic_hash": "83e1494df5881baaf3484a0b1360f0e5"
+  },
+  "ClientPlugin/Settings/Elements/Keybind.cs": {
+    "mtime": 1780666489.4757137,
+    "ast_hash": "63cdc7476230099ef8df44e3778b2fd8",
+    "semantic_hash": "63cdc7476230099ef8df44e3778b2fd8"
+  },
+  "ClientPlugin/Settings/Elements/Separator.cs": {
+    "mtime": 1780666489.4757593,
+    "ast_hash": "e1eda96ccabd23e0838f0a872b253a3a",
+    "semantic_hash": "e1eda96ccabd23e0838f0a872b253a3a"
+  },
+  "ClientPlugin/Settings/Elements/Slider.cs": {
+    "mtime": 1788379198.238549,
+    "ast_hash": "89a047e356ffc78472915ab6b0de51ae",
+    "semantic_hash": "89a047e356ffc78472915ab6b0de51ae"
+  },
+  "ClientPlugin/Settings/Elements/Textbox.cs": {
+    "mtime": 1780666489.4757874,
+    "ast_hash": "f97b414f2fcdc0edd47a47a4f4799456",
+    "semantic_hash": "f97b414f2fcdc0edd47a47a4f4799456"
+  },
+  "ClientPlugin/Settings/Layouts/Layout.cs": {
+    "mtime": 1780666489.4757874,
+    "ast_hash": "4e83cce9976506530535d9c3f039677d",
+    "semantic_hash": "4e83cce9976506530535d9c3f039677d"
+  },
+  "ClientPlugin/Settings/Layouts/None.cs": {
+    "mtime": 1780666489.475894,
+    "ast_hash": "111c5a570c24878c83ffa9cd1ae5b28d",
+    "semantic_hash": "111c5a570c24878c83ffa9cd1ae5b28d"
+  },
+  "ClientPlugin/Settings/Layouts/Simple.cs": {
+    "mtime": 1780666489.475894,
+    "ast_hash": "3a87c6b4f208c7b8213eb7f6f042f19e",
+    "semantic_hash": "3a87c6b4f208c7b8213eb7f6f042f19e"
+  },
+  "ClientPlugin/Settings/SettingsGenerator.cs": {
+    "mtime": 1780666489.475894,
+    "ast_hash": "354301f69cec76bed06614c2b2ec8825",
+    "semantic_hash": "354301f69cec76bed06614c2b2ec8825"
+  },
+  "ClientPlugin/Settings/SettingsScreen.cs": {
+    "mtime": 1780666489.475894,
+    "ast_hash": "83e9c66e751b8db2f02ba2a76830e833",
+    "semantic_hash": "83e9c66e751b8db2f02ba2a76830e833"
+  },
+  "ClientPlugin/Settings/Tools/Binding.cs": {
+    "mtime": 1780666489.4760382,
+    "ast_hash": "c422726454c063eccb597cdc99ae8e7c",
+    "semantic_hash": "c422726454c063eccb597cdc99ae8e7c"
+  },
+  "ClientPlugin/Settings/Tools/Tools.cs": {
+    "mtime": 1780666489.4760807,
+    "ast_hash": "9775fa5a560efb1aaa866587dff1593f",
+    "semantic_hash": "9775fa5a560efb1aaa866587dff1593f"
+  },
+  "ClientPlugin/Transfers/DistributionPlannerCore.cs": {
+    "mtime": 1788384910.7585802,
+    "ast_hash": "99634f9cd56f1815dd909c8b5dc0b6f9",
+    "semantic_hash": "99634f9cd56f1815dd909c8b5dc0b6f9"
+  },
+  "ClientPlugin/Transfers/TransferExecutor.cs": {
+    "mtime": 1788385070.9186957,
+    "ast_hash": "5d8eab0dc0207376e7028f3827f568de",
+    "semantic_hash": "5d8eab0dc0207376e7028f3827f568de"
+  },
+  "ClientPlugin/Transfers/TransferPlanFactory.cs": {
+    "mtime": 1788385268.7930944,
+    "ast_hash": "169686b57730f9194d97f4b86265ecad",
+    "semantic_hash": "169686b57730f9194d97f4b86265ecad"
+  },
+  "ClientPlugin/Transfers/TransferPlanner.cs": {
+    "mtime": 1788384718.5120296,
+    "ast_hash": "cddd47fe5fc82d7c3facb0eef2e77f47",
+    "semantic_hash": "cddd47fe5fc82d7c3facb0eef2e77f47"
+  },
+  "ClientPlugin/UI/ManagementScreens.cs": {
+    "mtime": 1788385469.372444,
+    "ast_hash": "5e066b5cb194f86272fa0c15a67818b6",
+    "semantic_hash": "5e066b5cb194f86272fa0c15a67818b6"
+  },
+  "ClientPlugin/UI/TerminalInventoryPatches.cs": {
+    "mtime": 1788385543.8131058,
+    "ast_hash": "2f6090e105bc43e87c20704c9e1a3349",
+    "semantic_hash": "2f6090e105bc43e87c20704c9e1a3349"
+  },
+  "ClientPlugin/UI/UnifiedInventoryOwnerControl.cs": {
+    "mtime": 1788548821.2799551,
+    "ast_hash": "ff2f236bd798e71325de1b015179f916",
+    "semantic_hash": "ff2f236bd798e71325de1b015179f916"
+  },
+  "ClientPlugin/UI/UnifiedTerminalController.cs": {
+    "mtime": 1788385536.4872367,
+    "ast_hash": "acefb1bb504a37975fcd541d25a90313",
+    "semantic_hash": "acefb1bb504a37975fcd541d25a90313"
+  },
+  "ServerPlugin/Plugin.cs": {
+    "mtime": 1788379418.5876737,
+    "ast_hash": "f8692e4a0f7099bb803500a038a5b1e6",
+    "semantic_hash": "f8692e4a0f7099bb803500a038a5b1e6"
+  },
+  "ServerPlugin/ServerPlugin.csproj": {
+    "mtime": 1788379418.5877995,
+    "ast_hash": "9e79501ca4cb57bd90070f3bcb2963e7",
+    "semantic_hash": "9e79501ca4cb57bd90070f3bcb2963e7"
+  },
+  "Shared/Config/IPluginConfig.cs": {
+    "mtime": 1788379198.2397244,
+    "ast_hash": "c5d246376ea9f4baffde335cec180bbb",
+    "semantic_hash": "c5d246376ea9f4baffde335cec180bbb"
+  },
+  "Shared/Config/PersistentConfig.cs": {
+    "mtime": 1780666489.4768255,
+    "ast_hash": "e015be1078bd694b77570fb81322ebc8",
+    "semantic_hash": "e015be1078bd694b77570fb81322ebc8"
+  },
+  "Shared/Config/PluginConfig.cs": {
+    "mtime": 1788379198.2397244,
+    "ast_hash": "af3bf8a73269c09daca2d35e15fccaf3",
+    "semantic_hash": "af3bf8a73269c09daca2d35e15fccaf3"
+  },
+  "Shared/Logging/IPluginLogger.cs": {
+    "mtime": 1780666489.4768636,
+    "ast_hash": "1d210865f6aaacf66ed475ad5a3dc05b",
+    "semantic_hash": "1d210865f6aaacf66ed475ad5a3dc05b"
+  },
+  "Shared/Logging/LogFormatter.cs": {
+    "mtime": 1780666489.476924,
+    "ast_hash": "eb7b9cedc4357734e84519765b0a7fb3",
+    "semantic_hash": "eb7b9cedc4357734e84519765b0a7fb3"
+  },
+  "Shared/Logging/PluginLogger.cs": {
+    "mtime": 1788379198.2397244,
+    "ast_hash": "7b35267ae17b6214fff9871545cf1d8f",
+    "semantic_hash": "7b35267ae17b6214fff9871545cf1d8f"
+  },
+  "Shared/Patches/PatchHelpers.cs": {
+    "mtime": 1788379198.2397244,
+    "ast_hash": "10f436649f3ef5ae3c263dc5ecb21bf7",
+    "semantic_hash": "10f436649f3ef5ae3c263dc5ecb21bf7"
+  },
+  "Shared/Plugin/Common.cs": {
+    "mtime": 1788379418.588317,
+    "ast_hash": "d24e7af6dd8db3737e67451e90e83a73",
+    "semantic_hash": "d24e7af6dd8db3737e67451e90e83a73"
+  },
+  "Shared/Plugin/ICommonPlugin.cs": {
+    "mtime": 1780666489.4772243,
+    "ast_hash": "488191b67cdc84bef82e4e74c6640d7f",
+    "semantic_hash": "488191b67cdc84bef82e4e74c6640d7f"
+  },
+  "Shared/Tools/CodeChange.cs": {
+    "mtime": 1780666489.4773073,
+    "ast_hash": "525fa42afae42522c9d13355650e6cce",
+    "semantic_hash": "525fa42afae42522c9d13355650e6cce"
+  },
+  "Shared/Tools/EnsureCode.cs": {
+    "mtime": 1780666489.4773839,
+    "ast_hash": "46b11d1c514702a66422734f35f6a54f",
+    "semantic_hash": "46b11d1c514702a66422734f35f6a54f"
+  },
+  "Shared/Tools/GameAssembliesToPublicize.cs": {
+    "mtime": 1780666489.477435,
+    "ast_hash": "a3c47e5747f7082ed0c59115831eb7d9",
+    "semantic_hash": "a3c47e5747f7082ed0c59115831eb7d9"
+  },
+  "Shared/Tools/Hashing.cs": {
+    "mtime": 1780666489.4774618,
+    "ast_hash": "8d8d104faf1ed25cfdce38ed0447989a",
+    "semantic_hash": "8d8d104faf1ed25cfdce38ed0447989a"
+  },
+  "Shared/Tools/IgnoresAccessChecksToAttribute.cs": {
+    "mtime": 1788379198.2397244,
+    "ast_hash": "e7c894b2c81c78a70218eb54d0eb556f",
+    "semantic_hash": "e7c894b2c81c78a70218eb54d0eb556f"
+  },
+  "Shared/Tools/PreloaderHelpers.cs": {
+    "mtime": 1788379198.2405488,
+    "ast_hash": "3195d1a32be41467ba808467e51e64d8",
+    "semantic_hash": "3195d1a32be41467ba808467e51e64d8"
+  },
+  "Shared/Tools/TranspilerHelpers.cs": {
+    "mtime": 1788379198.2405488,
+    "ast_hash": "bf43b1e3192166e4a913d593da465619",
+    "semantic_hash": "bf43b1e3192166e4a913d593da465619"
+  },
+  "Tests/Program.cs": {
+    "mtime": 1788384744.351566,
+    "ast_hash": "ec7d710929afb7e8cba4d0283060e798",
+    "semantic_hash": "ec7d710929afb7e8cba4d0283060e798"
+  },
+  "Tests/UnifiedStorage.CoreTests.csproj": {
+    "mtime": 1788384077.2585359,
+    "ast_hash": "f992ee27ce514c6e52c27537ba6e91dd",
+    "semantic_hash": "f992ee27ce514c6e52c27537ba6e91dd"
+  },
+  "UnifiedStorage.sln": {
+    "mtime": 1788384491.9690948,
+    "ast_hash": "e3ff4f73036c55e624e4a1cf2a86a316",
+    "semantic_hash": "e3ff4f73036c55e624e4a1cf2a86a316"
+  },
+  "clean.sh": {
+    "mtime": 1780666489.4777079,
+    "ast_hash": "d0e6c764109e0c934de5fb33543e5db2",
+    "semantic_hash": "d0e6c764109e0c934de5fb33543e5db2"
+  },
+  "setup.py": {
+    "mtime": 1788379198.2405488,
+    "ast_hash": "da738248f34430113bb77a39fcba18cb",
+    "semantic_hash": "da738248f34430113bb77a39fcba18cb"
+  },
+  ".github/copilot-instructions.md": {
+    "mtime": 1780666489.4747038,
+    "ast_hash": "9d52d613dd3bae00479e061e46df9693",
+    "semantic_hash": "9d52d613dd3bae00479e061e46df9693"
+  },
+  ".vscode/AGENTS.md": {
+    "mtime": 1780666489.4750865,
+    "ast_hash": "d27cd5d91e492d82b51faf81162364f6",
+    "semantic_hash": "d27cd5d91e492d82b51faf81162364f6"
+  },
+  "AGENTS.md": {
+    "mtime": 1788379198.238549,
+    "ast_hash": "fdf5d6a9596366b5d3575492891bdeff",
+    "semantic_hash": "fdf5d6a9596366b5d3575492891bdeff"
+  },
+  "Docs/CLIENT_PLUGIN_PLAN.md": {
+    "mtime": 1788382086.315193,
+    "ast_hash": "854d792fb369e7bfe0dcbc6fae9c2e2e",
+    "semantic_hash": "854d792fb369e7bfe0dcbc6fae9c2e2e"
+  },
+  "Docs/CLIENT_PLUGIN_PLAN.review.md": {
+    "mtime": 1788381345.134427,
+    "ast_hash": "32d205ab25e57eb3277a306188b1c9b9",
+    "semantic_hash": "32d205ab25e57eb3277a306188b1c9b9"
+  },
+  "Docs/CLIENT_PLUGIN_TEST_MATRIX.md": {
+    "mtime": 1788384704.2402859,
+    "ast_hash": "64a4ca6b9a813dc0e551454ac6308d52",
+    "semantic_hash": "64a4ca6b9a813dc0e551454ac6308d52"
+  },
+  "Docs/SERVER_COMPANION_PLAN.md": {
+    "mtime": 1788381796.8073647,
+    "ast_hash": "2c9da9285e827a51a58709e3101e4ed0",
+    "semantic_hash": "2c9da9285e827a51a58709e3101e4ed0"
+  },
+  "Docs/SERVER_COMPANION_PLAN.review.md": {
+    "mtime": 1788381347.4563856,
+    "ast_hash": "c212ea73ce353a232fa980ff53e38d87",
+    "semantic_hash": "c212ea73ce353a232fa980ff53e38d87"
+  },
+  "README.md": {
+    "mtime": 1788385475.2873363,
+    "ast_hash": "7a0f96aa2ea9bf338c19be193b504a8e",
+    "semantic_hash": "7a0f96aa2ea9bf338c19be193b504a8e"
+  },
+  "Docs/ConfigDialogExample.png": {
+    "mtime": 1780666489.4761746,
+    "ast_hash": "5298688f8d5cc8b4f4a03d18a449b596",
+    "semantic_hash": "5298688f8d5cc8b4f4a03d18a449b596"
+  }
+}

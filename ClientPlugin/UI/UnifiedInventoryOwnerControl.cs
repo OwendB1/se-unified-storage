@@ -30,8 +30,9 @@ internal sealed class ProjectedGridContext
 internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 {
     private const float Padding = 0.008f;
-    private const float OwnerHeaderHeight = 0.035f;
-    private const float SectionHeaderHeight = 0.058f;
+    private const float OwnerHeaderHeight = 0.045f;
+    private const float SectionHeaderHeight = 0.031f;
+    private const float ExpandedSectionHeaderHeight = 0.058f;
     private const float RoleHeaderHeight = 0.025f;
     private const float FooterHeight = 0.033f;
     private readonly List<MyGuiControlGrid> grids = new();
@@ -39,7 +40,6 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
     public UnifiedInventoryOwnerControl(
         MechanicalInventorySession session,
         string viewId,
-        string viewName,
         InventoryProjection projection,
         DistributionPolicy policy,
         string search,
@@ -78,21 +78,13 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             .ToArray();
         var sections = visibleRoles.GroupBy(entry => entry.Role.Section).ToArray();
         var height = Padding * 2 + OwnerHeaderHeight + FooterHeight +
-                     sections.Length * SectionHeaderHeight +
+                     sections.Sum(section => GetSectionHeaderHeight(section.Key)) +
                      visibleRoles.Sum(entry => RoleHeaderHeight + GridHeight(entry.Stacks.Count) + Padding);
         Size = new Vector2(0.392f, Math.Max(0.12f, height));
         var topLeft = Size * -0.5f + new Vector2(Padding, Padding);
 
-        Elements.Add(new MyGuiControlLabel(
-            topLeft,
-            text: string.IsNullOrEmpty(viewName) ? GetScopeName(projection) : viewName,
-            textScale: 0.72f,
-            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP)
-        {
-            Size = new Vector2(0.19f, OwnerHeaderHeight)
-        });
         var policyCombo = new MyGuiControlCombobox(
-            topLeft + new Vector2(0.202f, 0f),
+            topLeft,
             new Vector2(0.17f, 0.03f),
             originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
             openAreaItemsCount: 3,
@@ -120,13 +112,15 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 text: $"{GetSectionName(section.First().Role)} × {members}" +
                       (reserved > 0 ? $"  Reserved: {reserved}" : string.Empty),
                 textScale: 0.64f,
-                originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP)
+                originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
+                isAutoEllipsisEnabled: true,
+                maxWidth: 0.14f)
             {
-                Size = new Vector2(0.21f, 0.025f)
+                Size = new Vector2(0.14f, 0.025f)
             });
-            Elements.Add(MakeButton("Manage", topLeft.X + 0.22f, y, 0.07f,
+            Elements.Add(MakeButton("Manage", topLeft.X + 0.148f, y, 0.064f,
                 _ => manage?.Invoke(sectionRoles), "Configure member exclusions"));
-            var rebalanceButton = MakeButton("Rebalance", topLeft.X + 0.294f, y, 0.08f,
+            var rebalanceButton = MakeButton("Rebalance", topLeft.X + 0.216f, y, 0.086f,
                 _ => rebalance?.Invoke(sectionRoles), "Redistribute this type using the selected policy");
             rebalanceButton.Enabled = Plugin.Instance.Transfers.PendingCount == 0 && sectionRoles.Any(role =>
                 role.Stacks.Any(stack => role.Members.Count(member =>
@@ -136,13 +130,14 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
             var feature = FeatureName(section.Key);
             if (feature != null)
-                Elements.Add(MakeButton(feature, topLeft.X + 0.22f, y + 0.027f, 0.075f,
+                Elements.Add(MakeButton(feature, topLeft.X + 0.306f, y, 0.068f,
                     _ => configure?.Invoke(section.Key), FeatureTooltip(section.Key)));
             var utilityName = UtilityName(section.Key);
             if (utilityName != null)
-                Elements.Add(MakeButton(utilityName, topLeft.X + 0.299f, y + 0.027f, 0.075f,
+                Elements.Add(MakeButton(utilityName, topLeft.X + 0.306f,
+                    y + (feature == null ? 0f : 0.027f), 0.068f,
                     _ => utility?.Invoke(section.Key), UtilityTooltip(section.Key)));
-            y += SectionHeaderHeight;
+            y += GetSectionHeaderHeight(section.Key);
 
             foreach (var entry in section)
             {
@@ -150,7 +145,9 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                     new Vector2(topLeft.X + 0.004f, y),
                     text: GetRoleName(entry.Role.Role),
                     textScale: 0.58f,
-                    originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP));
+                    originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
+                    isAutoEllipsisEnabled: true,
+                    maxWidth: 0.37f));
                 y += RoleHeaderHeight;
                 var grid = CreateGrid(topLeft.X, y, entry, getFlags, itemDragged, itemDoubleClicked);
                 grids.Add(grid);
@@ -177,6 +174,12 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
     public InventoryProjection Projection { get; }
     public IReadOnlyList<MyGuiControlGrid> Grids => grids;
 
+    public override MyGuiControlBase HandleInput()
+    {
+        base.HandleInput();
+        return HandleInputElements();
+    }
+
     private MyGuiControlGrid CreateGrid(
         float x,
         float y,
@@ -192,7 +195,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
             Position = new Vector2(x, y),
             ColumnsCount = 7,
-            RowsCount = Math.Max(1, (int)Math.Ceiling((entry.Stacks.Count + 1) / 7d)),
+            RowsCount = GridRows(entry.Stacks.Count),
             ShowTooltipWhenDisabled = true
         };
         var context = new ProjectedGridContext(this, entry.Role, grid);
@@ -256,8 +259,20 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             ? "Run the bounded bottle refill job"
             : "Move inventory from idle assembly-mode assemblers back to Unified Cargo";
 
-    private static float GridHeight(int itemCount) =>
-        Math.Max(1, (int)Math.Ceiling((itemCount + 1) / 7d)) * 0.0575f;
+    private static float GetSectionHeaderHeight(InventorySectionKey section) =>
+        FeatureName(section) != null && UtilityName(section) != null
+            ? ExpandedSectionHeaderHeight
+            : SectionHeaderHeight;
+
+    private static int GridRows(int itemCount) =>
+        Math.Max(1, (int)Math.Ceiling((itemCount + 1) / 7d));
+
+    private static float GridHeight(int itemCount)
+    {
+        var style = MyGuiControlGrid.GetVisualStyle(MyGuiControlGridStyleEnum.Inventory);
+        return style.ContentPadding.SizeChange.Y + style.ItemMargin.TopLeftOffset.Y +
+               (style.ItemTexture.SizeGui.Y + style.ItemMargin.MarginStep.Y) * GridRows(itemCount);
+    }
 
     private static bool MatchesSearch(ProjectedInventoryStack stack, string search)
     {
@@ -267,9 +282,6 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         return (definition?.DisplayNameText?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
                stack.DefinitionId.ToString().IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
     }
-
-    private static string GetScopeName(InventoryProjection projection) =>
-        projection.Scope.AnchorGrid.DisplayName ?? projection.Scope.AnchorGrid.Name ?? "Unified Cargo";
 
     private static string GetSectionName(InventoryRoleProjection role) => role.Section.Kind switch
     {

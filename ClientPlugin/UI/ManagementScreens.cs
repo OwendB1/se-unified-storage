@@ -108,7 +108,8 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
             Position = new Vector2(-0.36f, -0.31f),
             Size = new Vector2(0.72f, 0.48f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            ColumnsCount = 3
+            ColumnsCount = 3,
+            VisibleRowsCount = 15
         };
         table.SetCustomColumnWidths(new[] { 0.55f, 0.15f, 0.3f });
         table.SetColumnName(0, new StringBuilder("Block"));
@@ -130,12 +131,12 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
         table.ItemSelected += (_, _) => LoadSelected();
         Controls.Add(table);
 
-        manual = AddCheckbox("Manual block", new Vector2(-0.34f, 0.21f));
-        reserved = AddCheckbox("Reserved / not counted", new Vector2(-0.08f, 0.21f));
-        noDestination = AddCheckbox("Not a cargo destination", new Vector2(0.2f, 0.21f));
+        manual = AddCheckbox("Manual block", new Vector2(-0.34f, 0.27f));
+        reserved = AddCheckbox("Reserved / not counted", new Vector2(-0.08f, 0.27f));
+        noDestination = AddCheckbox("Not a cargo destination", new Vector2(0.2f, 0.27f));
         noDestination.Enabled = roles.Any(role => role.Section.Kind == InventorySectionKind.UnifiedCargo);
-        Controls.Add(Button("Apply", new Vector2(0.2f, 0.31f), Apply));
-        Controls.Add(Button("Close", new Vector2(0.35f, 0.31f), () => CloseScreen()));
+        Controls.Add(Button("Apply", new Vector2(-0.1f, 0.34f), Apply));
+        Controls.Add(Button("Close", new Vector2(0.1f, 0.34f), () => CloseScreen()));
         if (table.RowsCount > 0)
             table.SetSelectedRow(0);
     }

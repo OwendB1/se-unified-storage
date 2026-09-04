@@ -23,7 +23,6 @@ internal static class TerminalInventoryBridge
         public MyGridColorHelper ColorHelper;
         public UnifiedTerminalController Unified;
         public MyGuiControlCheckbox Toggle;
-        public MyGuiControlLabel ToggleLabel;
         public Action<MyGuiControlCheckbox> ToggleHandler;
         public bool IsUnified;
     }
@@ -151,7 +150,6 @@ internal static class TerminalInventoryBridge
     private static void EnsureToggle(State state)
     {
         state.Toggle = state.Parent.Controls.GetControlByName("UnifiedStorageToggle") as MyGuiControlCheckbox;
-        state.ToggleLabel = state.Parent.Controls.GetControlByName("UnifiedStorageToggleLabel") as MyGuiControlLabel;
         if (state.Toggle != null)
             return;
         state.Toggle = new MyGuiControlCheckbox
@@ -161,19 +159,10 @@ internal static class TerminalInventoryBridge
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_CENTER,
             IsChecked = Config.Current.UnifiedByDefault
         };
-        state.ToggleLabel = new MyGuiControlLabel
-        {
-            Name = "UnifiedStorageToggleLabel",
-            Position = new Vector2(-0.013f, -0.315f),
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
-            Text = "Unified",
-            TextScale = 0.62f
-        };
         state.Toggle.SetToolTip("Use Unified Storage. Turn this off at any time to restore Keen's original inventory UI.");
         state.ToggleHandler = _ => ToggleChanged(state);
         state.Toggle.IsCheckedChanged += state.ToggleHandler;
         state.Parent.Controls.Add(state.Toggle);
-        state.Parent.Controls.Add(state.ToggleLabel);
     }
 
     private static void ToggleChanged(State state)

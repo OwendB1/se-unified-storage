@@ -12,6 +12,7 @@ using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.World;
+using Sandbox.Graphics;
 using Sandbox.Graphics.GUI;
 using VRage;
 using VRage.Game;
@@ -21,6 +22,54 @@ using VRage.Utils;
 using VRageMath;
 
 namespace ClientPlugin.UI;
+
+internal sealed class GasSystemFilterOverlay : MyGuiControlBase
+{
+    private const string MaskTexture = "Textures\\GUI\\Icons\\OxygenIcon.dds";
+    private readonly MyGuiControlRadioButton button;
+
+    public GasSystemFilterOverlay(MyGuiControlRadioButton button)
+        : base(button.Position, button.Size, isActiveControl: false, canHaveFocus: false,
+            originAlign: button.OriginAlign)
+    {
+        this.button = button;
+        Name = button.Name + "GasGlyph";
+        IsHitTestVisible = false;
+    }
+
+    public override void Draw(float transitionAlpha, float backgroundTransitionAlpha)
+    {
+        if (!button.Visible)
+            return;
+
+        var highlighted = button.HasHighlight;
+        var focused = !highlighted && button.HasFocus;
+        var selected = !highlighted && !focused && button.Selected;
+        var background = highlighted
+            ? WithAlpha(60, 76, 82, transitionAlpha)
+            : focused
+                ? WithAlpha(142, 188, 206, transitionAlpha)
+                : selected
+                    ? WithAlpha(91, 115, 123, transitionAlpha)
+                    : WithAlpha(41, 54, 62, transitionAlpha);
+        var glyph = focused
+            ? WithAlpha(33, 41, 45, transitionAlpha)
+            : highlighted || selected
+                ? WithAlpha(255, 255, 255, transitionAlpha)
+                : WithAlpha(146, 154, 160, transitionAlpha);
+        var center = GetPositionAbsoluteCenter();
+
+        // Cover only the stock gear, retaining the native border and all button sizing.
+        MyGuiManager.DrawSpriteBatch(MyGuiConstants.BLANK_TEXTURE, center, Size * 0.7f,
+            background, MyGuiDrawAlignEnum.HORISONTAL_CENTER_AND_VERTICAL_CENTER);
+        MyGuiManager.DrawSpriteBatch(MyGuiConstants.BLANK_TEXTURE, center, Size * 0.62f,
+            glyph, MyGuiDrawAlignEnum.HORISONTAL_CENTER_AND_VERTICAL_CENTER,
+            maskTexture: MaskTexture);
+    }
+
+    private static Color WithAlpha(byte red, byte green, byte blue, float alpha) =>
+        new(red, green, blue, (byte)(MathHelper.Clamp(alpha, 0f, 1f) * byte.MaxValue));
+}
 
 internal sealed class UnifiedTerminalController : IDisposable
 {
@@ -43,6 +92,9 @@ internal sealed class UnifiedTerminalController : IDisposable
         public MyGuiControlRadioButtonGroup FilterGroup;
         public MyGuiControlSearchBox Search;
         public MyGuiControlCheckbox HideEmpty;
+        public MyGuiControlLabel HideEmptyLabel;
+        public MyGuiControlRadioButton SystemFilterButton;
+        public GasSystemFilterOverlay SystemFilterOverlay;
         public PaneFilter Filter;
         public bool ShowGrid;
         public ProjectedGridContext FocusedProjected;
@@ -175,12 +227,14 @@ internal sealed class UnifiedTerminalController : IDisposable
         pane.GridButton = Get<MyGuiControlRadioButton>(prefix + "GridButton");
         pane.Search = Get<MyGuiControlSearchBox>("BlockSearch" + prefix);
         pane.HideEmpty = Get<MyGuiControlCheckbox>("CheckboxHideEmpty" + prefix);
+        pane.HideEmptyLabel = Get<MyGuiControlLabel>("LabelHideEmpty" + prefix);
         pane.TypeGroup = new MyGuiControlRadioButtonGroup();
         pane.TypeGroup.Add(pane.SuitButton);
         pane.TypeGroup.Add(pane.GridButton);
         pane.TypeChanged = _ =>
         {
             pane.ShowGrid = pane.TypeGroup.SelectedIndex == 1;
+            ApplyPaneLayout(pane);
             RebuildPane(pane);
         };
         pane.TypeGroup.SelectedChanged += pane.TypeChanged;
@@ -196,6 +250,8 @@ internal sealed class UnifiedTerminalController : IDisposable
         foreach (var (suffix, filter) in filters)
         {
             var button = Get<MyGuiControlRadioButton>(prefix + suffix);
+            if (filter == PaneFilter.System)
+                pane.SystemFilterButton = button;
             pane.FilterGroup.Add(button);
             Action<MyGuiControlRadioButton> handler = selected =>
             {
@@ -208,12 +264,29 @@ internal sealed class UnifiedTerminalController : IDisposable
             pane.FilterHandlers.Add((button, handler));
         }
         pane.FilterGroup.SelectByIndex(0);
-        pane.Search.Visible = true;
         pane.SearchChanged = _ => RebuildPane(pane);
         pane.Search.OnTextChanged += pane.SearchChanged;
-        pane.HideEmpty.Visible = true;
         pane.HideChanged = _ => RebuildPane(pane);
         pane.HideEmpty.IsCheckedChanged += pane.HideChanged;
+    }
+
+    private static void ApplyPaneLayout(Pane pane)
+    {
+        pane.Search.Visible = pane.ShowGrid;
+        pane.HideEmpty.Visible = pane.ShowGrid;
+        pane.HideEmptyLabel.Visible = pane.ShowGrid;
+        if (pane.SystemFilterOverlay != null)
+            pane.SystemFilterOverlay.Visible = pane.ShowGrid;
+        foreach (var (button, _) in pane.FilterHandlers)
+        {
+            button.Enabled = pane.ShowGrid;
+            button.Visible = pane.ShowGrid;
+        }
+        pane.List.Position = new Vector2(pane.IsLeft ? -0.46f : 0.4595f,
+            pane.ShowGrid ? -0.227f : -0.276f);
+        pane.List.Size = pane.ShowGrid
+            ? new Vector2(0.437f, 0.569f)
+            : new Vector2(0.437f, 0.618f);
     }
 
     private void ClearPane(Pane pane)
@@ -236,6 +309,11 @@ internal sealed class UnifiedTerminalController : IDisposable
         pane.FilterGroup = null;
         pane.Search = null;
         pane.HideEmpty = null;
+        pane.HideEmptyLabel = null;
+        if (pane.SystemFilterOverlay != null)
+            controlsParent?.Controls.Remove(pane.SystemFilterOverlay);
+        pane.SystemFilterButton = null;
+        pane.SystemFilterOverlay = null;
         pane.FocusedProjected = null;
         pane.FocusedReal = null;
         pane.TypeChanged = null;
@@ -305,6 +383,19 @@ internal sealed class UnifiedTerminalController : IDisposable
             profiles[session] = plugin.Profiles.GetOrCreate(ProfileIdentity.CurrentWorld, scope);
             plugin.Automation.Register(scope, profiles[session]);
         }
+        ApplyGasSystemFilterIcon(left);
+        ApplyGasSystemFilterIcon(right);
+    }
+
+    private void ApplyGasSystemFilterIcon(Pane pane)
+    {
+        if (pane.SystemFilterButton == null)
+            return;
+        pane.SystemFilterButton.VisualStyle = MyGuiControlRadioButtonStyleEnum.FilterSystem;
+        pane.SystemFilterButton.Icon = null;
+        pane.SystemFilterOverlay = new GasSystemFilterOverlay(pane.SystemFilterButton);
+        controlsParent.Controls.Add(pane.SystemFilterOverlay);
+        pane.SystemFilterButton.SetToolTip("Show gas systems");
     }
 
     private void PollScopes()
@@ -393,7 +484,6 @@ internal sealed class UnifiedTerminalController : IDisposable
                 var owner = new UnifiedInventoryOwnerControl(
                     session,
                     view.Id,
-                    view.Name,
                     projection,
                     profile.Policy,
                     search,
