@@ -101,15 +101,13 @@ public static class LoadoutEngine
             var deficits = new List<DestinationAllocation>();
             var surplus = new List<InventoryStackReference>();
             var currentTotal = members.Aggregate(MyFixedPoint.Zero, (sum, member) => sum + member.Inventory.GetItemAmount(item));
-            var remainingExcess = MyFixedPoint.Max(currentTotal - amount, MyFixedPoint.Zero);
-            foreach (var member in members)
+            var gaps = AutomationPlannerCore.Loadout((decimal)amount, members.Select(member =>
+                ((decimal)member.Inventory.GetItemAmount(item), (decimal)member.Inventory.ComputeAmountThatFits(item))).ToArray(), rule.PerMember);
+            for (var index = 0; index < members.Count; index++)
             {
-                var current = member.Inventory.GetItemAmount(item);
-                if (rule.PerMember && current < amount)
-                    deficits.Add(new DestinationAllocation(member, MyFixedPoint.Min(amount - current, member.Inventory.ComputeAmountThatFits(item))));
-                var excess = rule.PerMember ? MyFixedPoint.Max(current - amount, MyFixedPoint.Zero) : MyFixedPoint.Min(current, remainingExcess);
-                if (!rule.PerMember) remainingExcess -= excess;
-                surplus.AddRange(Sources(new[] { member }, excess));
+                var member = members[index];
+                if (gaps[index].Need > 0) deficits.Add(new DestinationAllocation(member, (MyFixedPoint)gaps[index].Need));
+                surplus.AddRange(Sources(new[] { member }, (MyFixedPoint)gaps[index].Excess));
             }
             if (!rule.PerMember && currentTotal < amount)
                 deficits.AddRange(TransferPlanner.PlanDestinations(rule.Policy, item, amount - currentTotal,

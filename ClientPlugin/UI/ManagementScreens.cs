@@ -352,6 +352,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
     {
         SaveGlobalSettings();
         Plugin.Instance.Profiles.Save();
+        if (CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.QueueComponents)) return;
         statuses = ComponentTargetEngine.Evaluate(session.Scope, profile, getFlags);
         Plugin.Instance.ProductionQueue.Enqueue(ComponentTargetEngine.PlanDeficits(statuses));
     }
@@ -443,6 +444,7 @@ internal sealed class LoadoutScreen : UnifiedStorageScreen
         Controls.Add(Button("Apply loadouts", new Vector2(-0.12f, 0.34f), () =>
         {
             if (Plugin.Instance.Transfers.PendingCount != 0) return;
+            if (CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.ApplyLoadouts, groupId: groupId)) return;
             var plans = LoadoutEngine.Plan(session.Refresh(), profile, getFlags, groupId: groupId);
             foreach (var plan in plans) enqueue(plan);
             if (plans.Count == 0)

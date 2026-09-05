@@ -41,7 +41,7 @@ public sealed class Plugin : IPlugin
         }
         PluginConfig.PropertyChanged += ConfigChanged;
         MySession.OnUnloading += Unloading;
-        log.Info("Companion loaded; shared profiles only. Authoritative transfers and automation are not enabled.");
+        log.Info("Companion loaded. Transfers, automation and utility jobs require operator opt-in; unattended services also require explicit profile ownership.");
     }
 
     public void Update()

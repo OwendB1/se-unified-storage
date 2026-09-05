@@ -7,6 +7,7 @@ using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.World;
 using VRage;
+using Shared.Companion;
 
 namespace ClientPlugin.Automation;
 
@@ -47,7 +48,7 @@ public sealed class LocalAutomationService : IDisposable
             worldId = currentWorld;
             DiscoverProfiles();
         }
-        if (tick < nextUpdateTick)
+        if (Plugin.Instance.Companion?.Busy == true || tick < nextUpdateTick)
             return;
         nextUpdateTick = tick + 30;
         foreach (var pair in scopes.ToArray())
@@ -108,7 +109,8 @@ public sealed class LocalAutomationService : IDisposable
         InventoryManagementFlags Flags(InventoryDescriptor descriptor) =>
             automation.Profile.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex);
 
-        if (automation.Profile.RefineryPriority.AutoSortInputs)
+        bool Local(CompanionCapabilities mode) => Plugin.Instance.Companion?.AllowsLocal(automation.Session.Scope.AnchorGrid, mode) != false;
+        if (automation.Profile.RefineryPriority.AutoSortInputs && Local(CompanionCapabilities.RefineryAutomation))
         {
             var priority = RefineryPriorityEngine.Build(automation.Session.Scope, automation.Profile, Flags);
             foreach (var refinery in automation.Session.Scope.Inventories.Select(descriptor => descriptor.Owner)
@@ -118,11 +120,11 @@ public sealed class LocalAutomationService : IDisposable
                 Plugin.Instance.RefinerySorts.Enqueue(refinery,
                     RefineryPriorityEngine.ForRefinery(priority, refinery),
                     MySession.Static.LocalPlayerId,
-                    () => automation.Profile.RefineryPriority.AutoSortInputs &&
+                    () => Local(CompanionCapabilities.RefineryAutomation) && automation.Profile.RefineryPriority.AutoSortInputs &&
                           !RefineryPriorityEngine.IsExcludedFromSorting(
                               refinery, automation.Session.Scope, Flags));
         }
-        if (automation.Profile.MaintainComponentTargets && Plugin.Instance.ProductionQueue.PendingCount == 0)
+        if (automation.Profile.MaintainComponentTargets && Local(CompanionCapabilities.ComponentAutomation) && Plugin.Instance.ProductionQueue.PendingCount == 0)
         {
             var statuses = ComponentTargetEngine.Evaluate(automation.Session.Scope, automation.Profile, Flags);
             if (statuses.Any(status => status.Target > MyFixedPoint.Zero &&
@@ -130,13 +132,17 @@ public sealed class LocalAutomationService : IDisposable
                                       (decimal)status.Target * automation.Profile.ComponentStartThreshold))
                 Plugin.Instance.ProductionQueue.Enqueue(ComponentTargetEngine.PlanDeficits(statuses));
         }
-        if (automation.Profile.Loadouts.Any(rule => rule.Maintain) && Plugin.Instance.Transfers.PendingCount == 0)
+        if (automation.Profile.Loadouts.Any(rule => rule.Maintain) && Local(CompanionCapabilities.LoadoutAutomation) && Plugin.Instance.Transfers.PendingCount == 0)
             foreach (var plan in LoadoutEngine.Plan(projection, automation.Profile, Flags, maintainedOnly: true))
+            {
+                var guard = plan.CanContinue;
+                plan.CanContinue = () => Local(CompanionCapabilities.LoadoutAutomation) && (guard == null || guard());
                 Plugin.Instance.Transfers.Enqueue(
                     plan,
                     automation.Session.Scope.AnchorGrid,
                     MySession.Static.LocalPlayerId,
                     Flags);
+            }
     }
 
     private void Clear()

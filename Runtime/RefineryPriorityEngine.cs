@@ -75,33 +75,14 @@ public static class RefineryPriorityEngine
                 recipes.Any(recipe => recipe.Prerequisites.Any(item => item.Id == input) &&
                                       refinery.CanUseBlueprint(recipe.Blueprint))));
 
-        IReadOnlyList<MyDefinitionId> ordered;
-        if (profile.RefineryPriority.Automatic)
-        {
-            var pinned = ParseIds(profile.RefineryPriority.PinnedDefinitionIds)
-                .Where(inputs.Contains)
-                .Distinct()
-                .ToArray();
-            var stock = GetScopeStock(scope, getFlags);
-            ordered = pinned.Concat(inputs.Where(input => !pinned.Contains(input))
-                    .OrderBy(input => Scarcity(input, recipes, stock))
-                    .ThenByDescending(input => recipes.Where(recipe => recipe.Prerequisites.Any(item => item.Id == input))
-                        .Max(recipe => recipe.Blueprint.Priority))
-                    .ThenBy(DisplayName, StringComparer.CurrentCultureIgnoreCase)
-                    .ThenBy(input => input.ToString(), StringComparer.Ordinal))
-                .ToArray();
-        }
-        else
-        {
-            var manual = ParseIds(profile.RefineryPriority.ManualDefinitionIds)
-                .Where(inputs.Contains)
-                .Distinct()
-                .ToArray();
-            ordered = manual.Concat(inputs.Where(input => !manual.Contains(input))
-                    .OrderBy(DisplayName, StringComparer.CurrentCultureIgnoreCase)
-                    .ThenBy(input => input.ToString(), StringComparer.Ordinal))
-                .ToArray();
-        }
+        var automatic = profile.RefineryPriority.Automatic;
+        var stock = automatic ? GetScopeStock(scope, getFlags) : null;
+        var byId = inputs.ToDictionary(input => input.ToString());
+        var ordered = AutomationPlannerCore.OreOrder(inputs.Select(input =>
+            (input.ToString(), DisplayName(input), automatic ? Scarcity(input, recipes, stock) : 0d,
+                recipes.Where(recipe => recipe.Prerequisites.Any(item => item.Id == input)).Max(recipe => recipe.Blueprint.Priority))),
+            automatic ? profile.RefineryPriority.PinnedDefinitionIds : profile.RefineryPriority.ManualDefinitionIds, automatic)
+            .Select(id => byId[id]).ToArray();
         return new RefineryPriorityModel(recipes, ordered, counts);
     }
 

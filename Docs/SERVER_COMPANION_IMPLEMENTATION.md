@@ -1,12 +1,41 @@
 # Server companion implementation status
 
+## Current source — full companion feature pass
+
+The sections below this one record earlier milestones. This section supersedes their feature-status and size-limit statements. The live test server was still running the earlier persistence-only hub revision during implementation; no Magnetar devfolder was configured. Publish the new source pin and restart the test instance before testing these server paths. Keep mutation capabilities disabled on production servers until acceptance passes.
+
+Implemented:
+
+- Authoritative withdrawals, deposits and selected-row rebalance, including cross-mechanical-ship transfers. Client requests contain intent/selectors, never trusted allocations; server execution uses native transfers after endpoint/path checks.
+- Shared runtime definition/group/planning adapters; value-only distribution and automation calculations in `Shared/Planning` (ore ordering, blueprint choice, co-product-aware production assignment and loadout gaps). Disassembly queues no longer count as pending component production; missing modded Productivity upgrades default to zero.
+- Independently gated refinery sorting, component queue additions and generic loadout services. Shared profile ownership is a separate explicit owner-only operation. Operator enablement or publishing settings alone never claims a loop.
+- Compact ownership manifests (maximum 4,100 bytes), per-scope client suppression, guards for previously queued client work, 60-second server handover delays, and a 45-second initial client discovery grace period. Once coordination is seen, stale ownership does not resume local maintainers. Arbitrary scripts and old client versions cannot be coordinated; use updated clients for acceptance testing.
+- Server scheduling coalesces inventory/queue changes, conveyor and terminal-group changes, grid ownership, split/merge and completed connection changes. One profile is considered per 100 ms, with a configurable minimum service interval and a 15-second topology audit. Each pass defaults to four mutations. No-op services wait for dirtiness; uncertain mutations pause that profile until explicitly revised.
+- Owner run-now controls and status queries. Faction access for unattended endpoints is separately configurable and defaults off; anchor ownership remains mandatory. Missing/merged/changed scopes fail closed.
+- Explicit bottle-refill and idle-assembler-drain jobs with sender-bound status/cancel, one active job per sender/ship, 32 retained jobs globally, 120-second active deadlines and 60-second completed-result retention. Cancellation never rolls back game mutations. Jobs use current rights while the initiator is online; disconnected continuation requires anchor ownership and the configured principal relationship. Access loss otherwise interrupts work.
+- Refill stages one empty bottle at a time, checks definition-derived gas compatibility, requests native refill without toggling auto-refill, observes progress for up to five seconds, and returns the exact staged bottle to its original inventory. Changed/stranded bottles are reported with their block/inventory. Initially at most 16 source stacks are selected; a multi-bottle stack contributes one bottle per explicit pass. Partially filled bottles remain deliberately excluded.
+- Revision-bound paged snapshots/uploads: 16 KiB raw pages, 16 pages / 256 KiB document maximum. Uploads are bound to sender, anchor, profile and base revision, retained for two minutes, limited to one per sender and 16 globally. Client page sequences reserve the request channel and pace pages at 1.2-second intervals. A complete upload commits only after current revision/ownership and schema validation.
+- Owner-only section patches; paged owned-profile catalog; explicit bind/recover and delete UI. Rebinding disables automation. Deletion archives the removed profile independently of ordinary `.bak` saves. Orphans are retained forever by default; opt-in day-based expiry archives at most one profile per audit, after a world-load grace period.
+- PluginSdk operator switches, service budgets, policy controls, orphan retention, request timing, refinery/queue counters and active-job/profile gauges.
+
+Verification: both targets build against the installed game/SDK; core checks and the temporary companion harness pass. No additional regression project was added. The client devfolder was restarted successfully and logged `UnifiedStorage: Successfully loaded`. This proves source-loader/startup compatibility, not the new server gameplay paths. The live dedicated-server matrix below remains required.
+
+Current limitations to exercise or refine during acceptance:
+
+- Large manual action payloads and individual section patches still obey the 48 KiB packet ceiling; paging is for profile fetch/publication. Reduce/split a section if it exceeds that ceiling.
+- Native graph traversal cost is not bounded internally; only call counts, enumerated scope sizes and mutation counts are bounded. Profile before increasing budgets. No measured conveyor speedup is claimed.
+- Refill returns to the original inventory only; if it cannot return safely, the receipt identifies the stranded bottle instead of selecting an unrequested fallback. Utility jobs are not persisted across process restarts.
+- A metadata-only status query reports current ownership and the latest scheduler result, not a detailed per-machine dashboard. Recipe discovery, eligibility and scope reads remain runtime adapters, not pure value planners.
+- A very late companion discovery after the standalone grace period cannot retract vanilla requests already sent. All automated clients must run a compatible build; programmable blocks and unrelated plugins remain outside this coordination mechanism.
+- New server paths, Quasar rendering, two-client ownership transitions, authorization races, save/restart and the full sorter/constraint/bottle matrix still require live testing against the newly published build. Prior live persistence-only evidence does not establish these results.
+
 ## First milestone: persistence-only shared profiles
 
-Implemented in source; not yet accepted in a live dedicated-server multiplayer session.
+Implemented in source. A single-client owner-path smoke test passed on a live Magnetar dedicated server on 2026-09-05; the full multiplayer acceptance matrix remains outstanding.
 
 - Magnetar `IPlugin` lifecycle, PluginSdk-discoverable operator configuration and structured logging/statistics.
 - Fixed secure mod-message channel `48763`, magic `USCP` (`0x55534350`), protocol version 1, reliable discovery and request/result messages. No plugin-defined network events.
-- Client-initiated discovery every 20 seconds, proactive advertisement on player join, capability expiry after 45 seconds. Only `SharedProfiles` is advertised. All inventory transfers and automation still use the standalone client paths.
+- Client-initiated discovery every 20 seconds, proactive advertisement on player join, capability expiry after 45 seconds. By default only `SharedProfiles` is advertised. Transfers have a separate default-off capability; automation still uses standalone client paths.
 - Authenticated transport sender, current online identity, native terminal access/ownership validation, independently resolved mechanical scope. Profile creation requires anchor `BigOwners` membership; subsequent publication also requires the recorded owner. Optional faction access is read-only and requires explicit sharing. A profile whose principal no longer owns its anchor is inaccessible; there is no implicit ownership takeover or admin override.
 - UUID profiles with revisions and explicit anchor grid IDs, preserving named group selectors and unknown mod definition strings. Requests resolve current mechanical membership. Multiple anchored profiles in one merged scope return conflict; split-off and pasted grids do not inherit the profile. Orphaned records are retained, not silently rebound.
 - Fetch and compare-and-swap publication of priorities, component targets/blueprint choices, groups, loadouts, policy and exclusions. A stale revision returns the current authorized snapshot. Payload owner/identity/anchor metadata is never trusted to grant authority.
@@ -16,6 +45,23 @@ Implemented in source; not yet accepted in a live dedicated-server multiplayer s
 - Client **Inventory groups → Shared profile** screen: fetch, inspect, publish, adopt and faction-read option. Adoption retains unmatched private groups and their loadout rules, preserves the local world/anchor identity, writes a timestamped `before-adoption` backup, and turns local maintenance switches off. Publishing retains groups present only in the fetched server snapshot. Local editing remains local until explicitly published.
 
 Profile DTOs and enums now live in `Shared/Profiles`; historical `ClientPlugin` namespaces are retained solely to avoid unnecessary local XML/API churn. These files contain no game-session or GUI dependencies.
+
+## Second source milestone: bounded authoritative transfers
+
+Implemented locally; not deployed or verified against the running dedicated server. `CompanionConfig.Transfers` defaults to `false`. No public registry pin was advanced for this milestone.
+
+- Added reliable `Transfer` intents and structured receipts to the existing authenticated, epoch/deadline-bound request journal. The same request ID cannot execute twice; exceptions during mutation report unknown outcome rather than a retryable rejection.
+- The client sends selectors, a concrete seed stack identity, the requested fixed-point amount, policy and restrictive local exclusions—not physical allocations. Both source and destination may name independent mechanical ship scopes. Named terminal groups remain names; network selection uses the same component resolver on both runtimes, including opposing-sorter overlap merging and omission of portless blocks.
+- The server resolves game definitions, group/role filters, stack compatibility and current membership itself. Stateful items use their exact seed identity; additional stacks must satisfy the game's bidirectional `CanStack` rule. Shared exclusions are ORed with local intent exclusions and cannot be removed by the request.
+- Each allocation checks attached inventory identity, current native endpoint access/ownership, 2 km separation within the same logical group, constraints, whole-item quantities and capacity. Conveyor checks use `ComputeCanTransfer`, identity-aware item/large-tube `Reachable`, and plain directed `Reachable`. Character endpoints are limited to the sender's own live character and require a nearby physical terminal; remote-terminal access alone cannot teleport items into a suit. The blanket vanilla destination-admin bypass is not inherited.
+- The server executes `MyInventory.Transfer(..., spawn: false)` synchronously and returns the native moved amount. Work exhaustion produces a partial result, never automatic continuation/replay. Reserved and Manual inventories are excluded; No Unified Cargo Destination remains enforced for cargo deposits.
+- Existing Stack First, Fill First and Even By Item use the same distribution planner as the client. Operators can disable policies independently. Withdrawal does not depend on an enabled deposit policy.
+- Unified drag/drop, double-click and their existing gamepad path select the companion when advertised; absent capability keeps the vanilla implementation. Busy requests are not silently sent through a second path. Local transfer starts/maintenance wait while a companion request is pending. Rebalance, refinery sorting, production, loadouts and utility jobs have **not** been routed to server execution.
+- Reused game-dependent inventory/group/planner adapters now live in `Runtime`; pure distribution arithmetic lives in `Shared/Planning`. Namespaces remain compatible. Both source descriptors include the new directory; the published registry revisions still refer to the earlier persistence-only implementation.
+
+Bounds: per selected scope, 128 mechanical grids, 8,192 fat blocks and 256 accessible inventories by default (operator maximum 1,024); 8,192 scanned source stacks. One intent defaults to at most 32 physical allocations and 32 candidate-pair checks (operator maximum 128 each). Network decomposition is separately capped at the pair-check setting, with a minimum of two searches. Every pair check performs three native conveyor queries. The existing messages-per-update cap bounds total intents per frame. Large or heavily disconnected selections can return `WorkLimit`; these ceilings bound calls and enumerated inventories, not the internal cost of traversing a very large native conveyor graph. No global conveyor speedup is claimed without profiling.
+
+Source verification: client/server Release builds and existing core checks pass. The temporary companion harness now passes 159 checks, including transfer DTO/receipt round trips, invalid policies/selectors/quantities, ambiguous destinations, and duplicate management overrides. No additional regression project was introduced. These checks do **not** establish live endpoint authorization, gameplay parity, or performance; keep the feature off until the dedicated-server transfer matrix passes.
 
 ## Bounds and operational semantics
 
@@ -45,13 +91,27 @@ No inventory-path or conveyor-work reduction is claimed for this milestone. Its 
 - 146 isolated companion checks: envelope round-trip and every truncation boundary, bad magic/version/kind/length, size ceilings, duplicate/in-flight/result handling, altered request IDs, sender isolation, capacity saturation, expiry, DTO deep copy and validation, XML DTD/depth rejection, atomic store save/reload/backup, anchor membership and merge collisions, corrupt-store preservation, and unchanged loading of the actual existing local profile file.
 - These checks used a temporary harness; no additional regression project was added to the repository.
 
-Not verified: live secure-message routing, native permission checks against connected players, multi-client revision invalidation, join/reconnect/world-unload timing, Quasar rendering, the new profile screen in-game, or real dedicated-server save/restart behavior. No server was deployed or started and the running game was not restarted for this work.
+### Live Magnetar smoke test — 2026-09-05
 
-## Next implementation gates
+Tested implementation revision `546f5cd5d215100d82c1e4c8ef335760fbea8982` with the Pulsar client and the companion loaded from MagnetarHub, on the user-provided local dedicated server. The authenticated player used a provided cargo hatch on an owned mechanical ship. No inventory transfers, ownership changes, server restart, or shared automation were triggered by the test.
+
+- Inventory panels populated from the accessed cargo network; **Groups → Shared profile** opened successfully.
+- Secure discovery and request/reply routing worked. Initial fetch returned `NotFound` for the ship.
+- Explicit owner publication created revision 1 with faction reading off. Fetch returned that revision without adopting it. Inspect opened the vanilla mission screen with the expected policy and default groups.
+- Confirmed adoption created a timestamped local `before-adoption` backup. Comparing it with the resulting local XML showed only the selected ship's `AutoSortInputs` changing from `true` to `false`. World/anchor identifiers and unrelated profiles remained unchanged; component maintenance was already off and the profile had no loadout rules. Preservation of non-empty private groups/loadouts still needs a dedicated fixture.
+- Republishing the adopted settings created revision 2. The server's world-storage XML contained revision 2 and its `.bak` retained revision 1, confirming the debounced write and backup path without requiring a world save/restart.
+- Screenshots of the inventory, fetched-profile inspector, and adoption screen were inspected at 3440×1440; these screens showed no overlapping controls. Evidence is retained locally under the SE Remote skill's `Screenshots/20260905_companion_*.png`, not committed with private world details.
+- No companion errors appeared in the client or Magnetar logs during these operations.
+
+Found one UI-only issue: successful discovery left the initial “Waiting for companion discovery” label unchanged even though Fetch was enabled and worked. The client now updates the status when availability changes, without overwriting operation results every frame. Release build passes with zero warnings/errors; this label fix requires a client reload and has not yet been verified in-game.
+
+Still not verified live: denied/faction/non-owner access (the successful owner was also an admin), two-client conflicts and revision invalidation, reconnect/world-unload timing, companion absent/disabled/version mismatch, Quasar rendering, failure/timeout paths, mechanical split/merge, non-empty private-group adoption, or dedicated-server save/restart recovery. Do not treat this owner-path smoke test as full multiplayer acceptance.
+
+## Historical implementation gates (superseded by current-source status above)
 
 1. Run the dedicated-server acceptance pass for this milestone: companion absent/present/disabled; two clients; owner versus faction/non-owner; nearby versus remote terminal; concurrent publication; ownership loss; disconnect/timeout; save/restart; mechanical split/merge.
 2. Add paged snapshots, granular revisioned patches, explicit bind/delete/orphan-recovery UI and retention policy. Publication currently retains server-only groups in the client UI; deleting those remotely needs an explicit operation.
-3. Extract the remaining pure planning calculations. Implement the **complete** transfer validation boundary before enabling transfer capabilities: both endpoints, same-logical-group separation, character/replication access, identity-aware conveyor direction/sorters/tube size, constraints, integral quantities and capacity. Then withdrawals, deposits and distinct mechanical-group transfers with structured partial amounts.
+3. Live-verify the new default-off transfer milestone against vanilla decisions: both endpoints, same-logical-group separation, character/replication access, identity-aware conveyor direction/sorters/tube size, constraints, integral quantities, capacity, stateful stacks, cross-mechanical transfers and work-limit partial results. Profile native graph cost before raising the budgets. Extract the remaining pure planning calculations and add explicit authoritative rebalance without accepting client allocations.
 4. Add event-coalesced authoritative refinery, production and generic loadout schedulers. Only then advertise ownership of those loops and suspend corresponding client maintenance. Shared settings alone do not prevent two clients manually enabling competing local loops.
 5. Add explicit bounded bottle-refill and idle-assembler-drain jobs, with the planned no-progress/race checks and cancellation semantics.
 

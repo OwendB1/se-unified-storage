@@ -9,6 +9,8 @@
     <Import_RootNamespace>Shared</Import_RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Planning\*.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\Runtime\*.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Profiles\*.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Companion\*.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Config\IPluginConfig.cs" />

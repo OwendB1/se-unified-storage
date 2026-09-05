@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
 using Sandbox.ModAPI;
@@ -9,7 +11,7 @@ using VRage.Game.ModAPI;
 
 namespace ClientPlugin.Companion;
 
-public sealed class CompanionClient : IDisposable
+public sealed partial class CompanionClient : IDisposable
 {
     private readonly Queue<byte[]> inbound = new();
     private MySession session;
@@ -21,10 +23,26 @@ public sealed class CompanionClient : IDisposable
     private long nextHello;
     private long lastHello;
     private long serverUtc;
+    private AutomationManifest ownership;
+    private bool coordinationSeen;
+    private MySession ownershipSession;
+    private long discoveryStarted;
     public CompanionCapabilities Capabilities { get; private set; }
     public bool Available => (Capabilities & CompanionCapabilities.SharedProfiles) != 0;
-    public bool Busy => pending != null;
+    public bool Supports(CompanionCapabilities capability) => (Capabilities & capability) == capability;
+    public bool Busy => pending != null || profileSequence;
     public event Action<CompanionMessage> ProfileChanged;
+
+    public bool AllowsLocal(MyCubeGrid grid, CompanionCapabilities mode)
+    {
+        if (Sync.IsServer || grid == null) return true;
+        // Give discovery time before starting remembered maintainers on a newly joined server.
+        if (!coordinationSeen) return discoveryStarted != 0 &&
+            (lastHello != 0 || Stopwatch.GetTimestamp() - discoveryStarted >= Stopwatch.Frequency * 45);
+        if (ownership == null || lastHello == 0 || Stopwatch.GetTimestamp() - lastHello > Stopwatch.Frequency * 45) return false;
+        var grids = MyCubeGridGroups.Static?.Mechanical.GetGroupNodes(grid) ?? new List<MyCubeGrid> { grid };
+        return !ownership.Claims.Any(claim => (claim.Modes & mode) != 0 && grids.Any(member => member.EntityId == claim.Anchor));
+    }
 
     public CompanionClient() => MySession.OnUnloading += Reset;
 
@@ -45,6 +63,8 @@ public sealed class CompanionClient : IDisposable
         if (!ReferenceEquals(session, current))
         {
             Reset(); session = current;
+            discoveryStarted = Stopwatch.GetTimestamp();
+            if (!ReferenceEquals(ownershipSession, current)) { coordinationSeen = false; ownershipSession = current; }
             transport = MyModAPIHelper.MyMultiplayer.Static;
             transport.RegisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
         }
@@ -59,6 +79,15 @@ public sealed class CompanionClient : IDisposable
             {
                 if (epoch != Guid.Empty && epoch != message.Epoch) FinishUnknown();
                 epoch = message.Epoch; Capabilities = message.Capabilities;
+                if ((message.Capabilities & CompanionCapabilities.Coordination) != 0 || message.Body.Length != 0)
+                {
+                    coordinationSeen = true; ownership = null;
+                    var manifest = AutomationManifest.Decode(message.Body);
+                    if (manifest.Claims == null || manifest.Claims.Count > 256 || manifest.Claims.Any(claim =>
+                        claim == null || claim.Anchor == 0 || (claim.Modes & ~AutomationManifest.Modes) != 0))
+                        throw new InvalidOperationException("Invalid automation manifest.");
+                    ownership = manifest;
+                }
                 serverUtc = message.DeadlineUtcTicks; lastHello = now;
             }
             else if (message.Kind == MessageKind.Result && message.Epoch == epoch && message.RequestId == pendingId)
@@ -67,6 +96,8 @@ public sealed class CompanionClient : IDisposable
                 ProfileChanged?.Invoke(message);
         }
         if (pending != null && now >= pendingUntil) FinishUnknown();
+        if (profileStep != null && pending == null && now >= profileStepAt)
+        { var step = profileStep; profileStep = null; step(); }
         if (lastHello != 0 && now - lastHello > Stopwatch.Frequency * 45) Capabilities = CompanionCapabilities.None;
         if (now < nextHello) return;
         nextHello = now + Stopwatch.Frequency * 20;
@@ -83,7 +114,9 @@ public sealed class CompanionClient : IDisposable
     public bool Request(MessageKind kind, long anchor, long terminal, SharedScopeProfile snapshot, byte[] body,
         Action<CompanionMessage> completed)
     {
-        if (!Available || Busy || transport == null || completed == null) return false;
+        var required = kind == MessageKind.Transfer ? CompanionCapabilities.Transfers :
+            kind == MessageKind.Action || kind == MessageKind.JobStatus || kind == MessageKind.CancelJob || kind == MessageKind.AutomationStatus ? CompanionCapabilities.Coordination : CompanionCapabilities.SharedProfiles;
+        if (!Supports(required) || pending != null || profileSequence && !sendingProfilePage || transport == null || completed == null) return false;
         var now = Stopwatch.GetTimestamp();
         var message = new CompanionMessage
         {
@@ -114,8 +147,12 @@ public sealed class CompanionClient : IDisposable
         transport?.UnregisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
         transport = null; session = null; epoch = Guid.Empty;
         Capabilities = CompanionCapabilities.None; nextHello = lastHello = 0;
+        ownership = null;
+        if (MySession.Static == null || !ReferenceEquals(MySession.Static, ownershipSession)) coordinationSeen = false;
         lock (inbound) inbound.Clear();
         FinishUnknown();
+        var interrupted = profileInterrupted; profileInterrupted = null; profileStep = null; profileSequence = false;
+        interrupted?.Invoke();
     }
     public void Dispose() { MySession.OnUnloading -= Reset; Reset(); }
 }

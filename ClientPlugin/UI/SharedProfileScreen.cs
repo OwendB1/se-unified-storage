@@ -22,6 +22,7 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
     private SharedScopeProfile snapshot;
     private bool fetched;
     private bool closed;
+    private bool? companionAvailable;
     private MyGuiControlLabel status;
     private MyGuiControlLabel revision;
     private MyGuiControlCheckbox faction;
@@ -39,7 +40,8 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
-        Controls.Add(Label("Optional server storage. Transfers and automation still run client-side.", new Vector2(-0.36f, -0.29f)));
+        companionAvailable = null;
+        Controls.Add(Label("Optional server storage. Transfer support is controlled by the server.", new Vector2(-0.36f, -0.29f)));
         Controls.Add(Label("Fetch first. Nothing is adopted or published automatically.", new Vector2(-0.36f, -0.23f)));
         status = Label("Waiting for companion discovery...", new Vector2(-0.36f, -0.14f)); Controls.Add(status);
         revision = Label("No shared snapshot fetched.", new Vector2(-0.36f, -0.08f)); Controls.Add(revision);
@@ -51,7 +53,17 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         Controls.Add(Label("Adopt keeps private groups; existing local settings are backed up.", new Vector2(-0.36f, 0.22f)));
         publish = Button("Publish local", new Vector2(-0.19f, 0.28f), Publish, 0.22f); Controls.Add(publish);
         adopt = Button("Adopt fetched", new Vector2(0.19f, 0.28f), Adopt, 0.22f); Controls.Add(adopt);
-        Controls.Add(Button("Close", new Vector2(0, 0.35f), () => CloseScreen()));
+        Controls.Add(Button("Server automation", new Vector2(-0.26f, 0.35f), () =>
+        {
+            if (!client.Supports(CompanionCapabilities.Coordination)) { status.Text = "This server does not support automation ownership."; return; }
+            if (snapshot == null || !fetched) { status.Text = "Fetch a shared profile first."; return; }
+            MyGuiSandbox.AddScreen(new ServerAutomationScreen(snapshot, modes =>
+                Send(MessageKind.SetAutomation, ProfileCodec.Encode(new AutomationClaim { Modes = modes })), RunShared));
+        }, 0.22f));
+        Controls.Add(Button("Profile tools", new Vector2(0, 0.35f), () =>
+            MyGuiSandbox.AddScreen(new ProfileToolsScreen(session, local, snapshot, () =>
+            { fetched = false; status.Text = "Profile changed. Fetch the current revision."; })), 0.20f));
+        Controls.Add(Button("Close", new Vector2(0.26f, 0.35f), () => CloseScreen()));
     }
 
     public override bool Update(bool hasFocus)
@@ -64,7 +76,13 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         publish.Enabled = available && fetched && (snapshot == null || snapshot.OwnerIdentityId == MySession.Static?.LocalPlayerId);
         adopt.Enabled = available && fetched && snapshot != null;
         inspect.Enabled = snapshot != null;
-        if (client?.Available != true) status.Text = "Companion unavailable. Standalone inventory remains active.";
+        var connected = client?.Available == true;
+        if (companionAvailable != connected)
+        {
+            companionAvailable = connected;
+            status.Text = connected ? "Companion connected. Fetch the current profile to continue." :
+                "Companion unavailable. Standalone inventory remains active.";
+        }
         return result;
     }
 
@@ -72,6 +90,29 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
     {
         try { Send(MessageKind.GetProfile, null); }
         catch (Exception exception) { status.Text = "Cannot fetch this scope; reopen the terminal."; Plugin.Instance.Log.Error(exception, "Shared profile fetch failed"); }
+    }
+
+    private void RunShared(ShipAction? action)
+    {
+        var scope = session.Refresh().Scope;
+        var terminal = scope.InteractedEntity as MyTerminalBlock ?? scope.Inventories.Select(member => member.Owner).OfType<MyTerminalBlock>().FirstOrDefault();
+        if (terminal == null) return;
+        var body = action.HasValue ? ProfileCodec.Encode(new ShipActionIntent
+            { Action = action.Value, UseSharedSettings = true, Settings = new ScopeProfile { GroupSchemaVersion = 1 } }) : null;
+        if (!client.Request(action.HasValue ? MessageKind.Action : MessageKind.AutomationStatus, scope.AnchorGrid.EntityId, terminal.EntityId, snapshot, body, response =>
+        {
+            string text;
+            try
+            {
+                if (response.Code != ResultCode.Ok) text = "Server returned " + response.Code + ". No automatic retry.";
+                else if (action.HasValue)
+                { var result = ProfileCodec.Decode<ActionReceipt>(response.Body); text = $"{action}: {result.Mutations} changes; {result.Failure}."; }
+                else
+                { var result = ProfileCodec.Decode<AutomationStatus>(response.Body); text = result.Owned + ": " + result.State; }
+            }
+            catch (Exception) { text = "Invalid response; outcome unknown."; }
+            MyAPIGateway.Utilities?.ShowNotification(text, 7000);
+        })) MyAPIGateway.Utilities?.ShowNotification("Companion unavailable or busy.", 5000);
     }
 
     private void Changed(CompanionMessage message)
@@ -87,7 +128,7 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         var value = snapshot.Settings;
         var text = new StringBuilder();
         text.AppendLine($"Policy: {value.Policy}; faction-readable: {snapshot.FactionShared}");
-        text.AppendLine("Server-owned automation: disabled in this companion version.");
+        text.AppendLine("Server-owned automation: " + snapshot.Automation);
         text.AppendLine($"Refinery priorities: {(value.RefineryPriority.Automatic ? "Automatic" : "Manual")}");
         text.AppendLine("Pinned: " + string.Join(", ", value.RefineryPriority.PinnedDefinitionIds));
         text.AppendLine("Manual: " + string.Join(", ", value.RefineryPriority.ManualDefinitionIds));
@@ -113,7 +154,7 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
             if (snapshot != null)
                 settings.Groups.AddRange(snapshot.Settings.Groups.Where(g => settings.Groups.All(localGroup => localGroup.Id != g.Id)).Select(g => g.Copy()));
             ProfileCodec.Validate(settings);
-            Send(MessageKind.PublishProfile, ProfileCodec.Encode(new SharedScopeProfile
+            Send(MessageKind.PublishProfile, ProfileCodec.EncodeDocument(new SharedScopeProfile
             { Settings = settings, FactionShared = faction.IsChecked }));
         });
     }
@@ -151,14 +192,15 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         if (terminal == null || !scope.Grids.Any(g => g.EntityId == terminal.CubeGrid.EntityId))
             terminal = scope.Inventories.Select(i => i.Owner).OfType<MyTerminalBlock>().FirstOrDefault();
         if (terminal == null) { status.Text = "No terminal endpoint available in this ship."; return; }
-        var anchor = snapshot?.AnchorEntityId ?? local.ScopeAnchorEntityId;
+        var anchor = scope.AnchorGrid.EntityId;
         status.Text = "Waiting for server...";
-        if (!Plugin.Instance.Companion.Request(kind, anchor, terminal.EntityId, snapshot, body, response =>
+        if (!Plugin.Instance.Companion.ProfileRequest(kind, anchor, terminal.EntityId, snapshot, body, response =>
         {
             if (closed) return;
+            if (kind == MessageKind.SetAutomation && response.Code == ResultCode.Ok) { Fetch(); return; }
             if (response.Code == ResultCode.Ok || response.Code == ResultCode.Conflict && response.Body.Length != 0)
             {
-                snapshot = ProfileCodec.Decode<SharedScopeProfile>(response.Body);
+                snapshot = ProfileCodec.DecodeDocument<SharedScopeProfile>(response.Body);
                 ProfileCodec.Validate(snapshot.Settings);
                 fetched = true; faction.IsChecked = snapshot.FactionShared;
                 revision.Text = $"Revision {snapshot.Revision}; owner identity {snapshot.OwnerIdentityId}";

@@ -9,6 +9,7 @@
     <SourceDirectories>
         <Directory>ClientPlugin</Directory>
         <Directory>Shared</Directory>
+        <Directory>Runtime</Directory>
     </SourceDirectories>
     <Commit>546f5cd5d215100d82c1e4c8ef335760fbea8982</Commit>
 </PluginData>

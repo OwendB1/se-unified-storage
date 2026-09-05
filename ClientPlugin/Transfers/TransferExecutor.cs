@@ -73,6 +73,8 @@ public sealed class TransferExecutor
 
     public void Update()
     {
+        if (Plugin.Instance.Companion?.Busy == true && active?.InFlight == null)
+            return;
         var requestBudget = Math.Max(1, Math.Min(
             Config.Current.TransfersPerFrame,
             Config.Current.ReachabilityQueriesPerFrame));

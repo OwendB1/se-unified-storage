@@ -5,6 +5,8 @@ using System.Linq;
 using PluginSdk.Logging;
 using PluginSdk.Stats;
 using Sandbox.Game.World;
+using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
 using Sandbox.ModAPI;
 using Shared.Companion;
 using VRage.Game;
@@ -28,6 +30,11 @@ internal sealed class CompanionServer : IDisposable
     private readonly MySession session;
     private readonly IMyMultiplayer transport;
     private readonly ScopeProfileStore store;
+    private readonly AuthoritativeTransfers transfers;
+    private readonly AuthoritativeActions actions;
+    private readonly AutomationScheduler automation;
+    private readonly UtilityJobs utilityJobs;
+    private readonly ProfileOperations profileOperations;
     private readonly Guid epoch = Guid.NewGuid();
     private readonly long utcOrigin = DateTime.UtcNow.Ticks;
     private readonly long clockOrigin = Stopwatch.GetTimestamp();
@@ -42,14 +49,25 @@ internal sealed class CompanionServer : IDisposable
         this.session = session; this.config = config; this.log = log; this.stats = stats;
         transport = MyModAPIHelper.MyMultiplayer.Static;
         store = new ScopeProfileStore(session.CurrentPath, log);
+        transfers = new AuthoritativeTransfers(config, permissions, store, stats);
+        actions = new AuthoritativeActions(config, permissions, store, transfers, stats);
+        automation = new AutomationScheduler(store, config, actions, log);
+        utilityJobs = new UtilityJobs(config, store, permissions);
+        profileOperations = new ProfileOperations(store, config);
         session.OnSavingCheckpoint += Saving;
         session.Players.PlayersChanged += PlayersChanged;
         transport.RegisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
         foreach (var player in session.Players.GetOnlinePlayers()) Advertise(player.Id.SteamId, Guid.Empty);
     }
 
-    private CompanionCapabilities Capabilities => config.Enabled && config.SharedProfiles && store.Available
-        ? CompanionCapabilities.SharedProfiles : CompanionCapabilities.None;
+    private CompanionCapabilities Capabilities => !config.Enabled || !store.Available ? CompanionCapabilities.None :
+        (config.SharedProfiles ? CompanionCapabilities.SharedProfiles | CompanionCapabilities.ProfileOperations : CompanionCapabilities.None) |
+        (config.Transfers ? CompanionCapabilities.Transfers : CompanionCapabilities.None) |
+        (config.RefineryAutomation ? CompanionCapabilities.RefineryAutomation : CompanionCapabilities.None) |
+        (config.ComponentAutomation ? CompanionCapabilities.ComponentAutomation : CompanionCapabilities.None) |
+        (config.LoadoutAutomation ? CompanionCapabilities.LoadoutAutomation : CompanionCapabilities.None) |
+        (config.UtilityJobs ? CompanionCapabilities.UtilityJobs : CompanionCapabilities.None) |
+        CompanionCapabilities.Coordination;
     // An OS clock correction must not make a pruned request executable again.
     private long ServerNow => utcOrigin + (long)((Stopwatch.GetTimestamp() - clockOrigin) *
         (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
@@ -93,9 +111,13 @@ internal sealed class CompanionServer : IDisposable
             }
         }
         ProcessNotifications();
+        automation.Update();
+        utilityJobs.Update();
         store.Update();
         if (Stopwatch.GetTimestamp() < nextMaintenance) return;
         nextMaintenance = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 5;
+        if (Stopwatch.GetTimestamp() - clockOrigin > Stopwatch.Frequency * 60)
+            store.AuditOrphans(id => MyEntities.TryGetEntityById<MyCubeGrid>(id, out var grid) && !grid.MarkedForClose, config.OrphanRetentionDays);
         journal.Prune(ServerNow);
         lock (gate)
         {
@@ -104,6 +126,8 @@ internal sealed class CompanionServer : IDisposable
             stats.QueueDepth = inbound.Count;
         }
         stats.Profiles = store.Profiles.Count; stats.CachedResults = journal.Count;
+        stats.AutomationProfiles = store.Profiles.Count(profile => profile.Automation != 0);
+        stats.UtilityJobs = utilityJobs.ActiveCount;
         PluginStats.Publish("UnifiedStorage", new StatsSnapshot
         {
             UtcTimestamp = DateTime.UtcNow, Groups = { StatsSchema.Build(typeof(CompanionStats)).CaptureGroup(new[] { stats }) }
@@ -112,6 +136,7 @@ internal sealed class CompanionServer : IDisposable
 
     private void Process(Inbound incoming)
     {
+        var started = Stopwatch.GetTimestamp();
         if (!CompanionProtocol.TryDecode(incoming.Bytes, out var request) ||
             !session.Players.TryGetPlayerBySteamId(incoming.Sender, out _)) return;
         if (request.Kind == MessageKind.Hello)
@@ -120,7 +145,8 @@ internal sealed class CompanionServer : IDisposable
             Advertise(incoming.Sender, request.RequestId);
             return;
         }
-        if (request.Kind != MessageKind.GetProfile && request.Kind != MessageKind.PublishProfile) return;
+        if (request.Kind != MessageKind.GetProfile && request.Kind != MessageKind.PublishProfile && request.Kind != MessageKind.Transfer &&
+            request.Kind != MessageKind.Action && request.Kind != MessageKind.SetAutomation && request.Kind != MessageKind.JobStatus && request.Kind != MessageKind.CancelJob && request.Kind != MessageKind.ProfileOperation && request.Kind != MessageKind.AutomationStatus) return;
         var response = new CompanionMessage
         {
             Kind = MessageKind.Result, Epoch = epoch, RequestId = request.RequestId,
@@ -130,9 +156,11 @@ internal sealed class CompanionServer : IDisposable
         // Revalidate access even for cached settings: ownership may have changed since the first request.
         if (!permissions.TryResolve(incoming.Sender, request, out var identity, out var anchor, out var grids))
         { response.Code = ResultCode.Denied; Send(incoming.Sender, response); return; }
-        if (Capabilities == CompanionCapabilities.None) { Send(incoming.Sender, response); return; }
+        var required = request.Kind == MessageKind.Transfer ? CompanionCapabilities.Transfers :
+            request.Kind == MessageKind.Action || request.Kind == MessageKind.JobStatus || request.Kind == MessageKind.CancelJob || request.Kind == MessageKind.AutomationStatus ? CompanionCapabilities.Coordination : CompanionCapabilities.SharedProfiles;
+        if ((Capabilities & required) == 0) { Send(incoming.Sender, response); return; }
         var matches = store.InScope(grids);
-        if (matches.Any(profile => !ProfilePermissions.CanRead(profile, identity, config.AllowFactionRead)))
+        if ((request.Kind == MessageKind.GetProfile || request.Kind == MessageKind.PublishProfile || request.Kind == MessageKind.SetAutomation || request.Kind == MessageKind.AutomationStatus) && matches.Any(profile => !ProfilePermissions.CanRead(profile, identity, config.AllowFactionRead)))
         { response.Code = ResultCode.Denied; Send(incoming.Sender, response); return; }
         if (journal.TryFind(incoming.Sender, request.RequestId, incoming.Bytes, out var cached, out var conflict))
         {
@@ -148,7 +176,73 @@ internal sealed class CompanionServer : IDisposable
         { response.Code = ResultCode.Busy; Send(incoming.Sender, response); return; }
         try
         {
-            if (matches.Length > 1) response.Code = ResultCode.Conflict;
+            if (request.Kind == MessageKind.ProfileOperation)
+                profileOperations.Execute(incoming.Sender, identity, anchor, grids, request, response);
+            else if (matches.Length > 1) response.Code = ResultCode.Conflict;
+            else if (request.Kind == MessageKind.AutomationStatus)
+            {
+                response.Code = matches.Length == 0 ? ResultCode.NotFound : ResultCode.Ok;
+                if (matches.Length != 0) response.Body = ProfileCodec.Encode(automation.Status(matches[0]));
+            }
+            else if (request.Kind == MessageKind.JobStatus || request.Kind == MessageKind.CancelJob)
+            {
+                var query = ProfileCodec.Decode<UtilityJobReceipt>(request.Body);
+                var receipt = utilityJobs.Status(query.Id, incoming.Sender, request.Kind == MessageKind.CancelJob);
+                response.Code = receipt == null ? ResultCode.NotFound : ResultCode.Ok;
+                if (receipt != null) response.Body = ProfileCodec.Encode(receipt);
+            }
+            else if (request.Kind == MessageKind.Action)
+            {
+                var intent = ProfileCodec.Decode<ShipActionIntent>(request.Body);
+                intent.Validate();
+                var existing = matches.SingleOrDefault();
+                if (intent.UseSharedSettings && (existing == null || existing.OwnerIdentityId != identity ||
+                    !ProfilePermissions.CanRead(existing, identity, false)))
+                    response.Code = ResultCode.Denied;
+                else if (intent.UseSharedSettings && (existing.Id != request.ProfileId || existing.Revision != request.Revision))
+                    response.Code = ResultCode.Conflict;
+                else if (intent.UseSharedSettings && ((existing.Automation & ShipActionIntent.Capability(intent.Action)) == 0 || !automation.Ready(existing)))
+                    response.Code = ResultCode.Busy;
+                else if (!intent.UseSharedSettings && existing != null && (existing.Automation & ShipActionIntent.Capability(intent.Action)) != 0)
+                    response.Code = ResultCode.Busy;
+                else
+                {
+                    if (intent.UseSharedSettings) intent.Settings = existing.Settings;
+                    var terminal = MyEntities.GetEntityById(request.TerminalEntityId) as MyTerminalBlock;
+                    var receipt = intent.Action is ShipAction.RefillBottles or ShipAction.DrainAssemblers ?
+                        utilityJobs.Start(incoming.Sender, identity, anchor, terminal, intent) :
+                        actions.Execute(anchor, terminal, incoming.Sender, identity, intent);
+                    response.Body = ProfileCodec.Encode(receipt);
+                    response.Code = receipt.Failure == TransferFailure.UnknownOutcome ? ResultCode.UnknownOutcome : ResultCode.Ok;
+                }
+            }
+            else if (request.Kind == MessageKind.SetAutomation)
+            {
+                var existing = matches.SingleOrDefault();
+                if (existing == null) response.Code = ResultCode.NotFound;
+                else if (existing.OwnerIdentityId != identity || !anchor.BigOwners.Contains(identity)) response.Code = ResultCode.Denied;
+                else if (existing.Id != request.ProfileId || existing.Revision != request.Revision)
+                { response.Code = ResultCode.Conflict; Snapshot(response, existing); }
+                else
+                {
+                    var modes = ProfileCodec.Decode<AutomationClaim>(request.Body).Modes;
+                    if ((modes & ~AutomationManifest.Modes) != 0) throw new System.IO.InvalidDataException("Unknown automation mode.");
+                    var updated = ProfileCodec.DecodeDocument<SharedScopeProfile>(ProfileCodec.EncodeDocument(existing));
+                    updated.Automation = modes; updated.Revision = checked(updated.Revision + 1);
+                    response.ProfileId = updated.Id; response.Revision = updated.Revision;
+                    store.Put(updated); response.Code = ResultCode.Ok;
+                    foreach (var player in session.Players.GetOnlinePlayers()) Advertise(player.Id.SteamId, Guid.Empty);
+                }
+            }
+            else if (request.Kind == MessageKind.Transfer)
+            {
+                var intent = ProfileCodec.Decode<TransferIntent>(request.Body);
+                var receipt = transfers.Execute(incoming.Sender, identity,
+                    MyEntities.GetEntityById(request.TerminalEntityId) as MyTerminalBlock, intent);
+                if (receipt.RejectedRaw > 0 || receipt.Failure == TransferFailure.UnknownOutcome) stats.PartialTransfers++;
+                response.Body = ProfileCodec.Encode(receipt);
+                response.Code = receipt.Failure == TransferFailure.UnknownOutcome ? ResultCode.UnknownOutcome : ResultCode.Ok;
+            }
             else if (request.Kind == MessageKind.GetProfile)
             {
                 response.Code = matches.Length == 0 ? ResultCode.NotFound : ResultCode.Ok;
@@ -178,7 +272,8 @@ internal sealed class CompanionServer : IDisposable
                     {
                         Id = existing?.Id ?? Guid.NewGuid(), Revision = checked((existing?.Revision ?? 0) + 1),
                         AnchorEntityId = submitted.Settings.ScopeAnchorEntityId, OwnerIdentityId = identity,
-                        FactionShared = config.AllowFactionRead && submitted.FactionShared, Settings = submitted.Settings
+                        FactionShared = config.AllowFactionRead && submitted.FactionShared, Settings = submitted.Settings,
+                        Automation = existing?.Automation ?? CompanionCapabilities.None
                     };
                     Snapshot(response, value); // Encode before committing, so an encoding failure never mutates settings.
                     store.Put(value);
@@ -192,8 +287,9 @@ internal sealed class CompanionServer : IDisposable
             log.Warning("Companion request rejected", new { reason = exception.GetType().Name });
         }
         var bytes = CompanionProtocol.Encode(response);
+        stats.LastRequestMilliseconds = (Stopwatch.GetTimestamp() - started) * 1000d / Stopwatch.Frequency;
         journal.Complete(incoming.Sender, request.RequestId, bytes);
-        if ((response.Code == ResultCode.Ok || response.Code == ResultCode.NotFound) &&
+        if ((request.Kind == MessageKind.GetProfile || request.Kind == MessageKind.PublishProfile || request.Kind == MessageKind.SetAutomation || request.Kind == MessageKind.ProfileOperation) && (response.Code == ResultCode.Ok || response.Code == ResultCode.NotFound) &&
             (subscriptions.ContainsKey(incoming.Sender) || subscriptions.Count < 256))
             subscriptions[incoming.Sender] = new CompanionMessage
             { AnchorEntityId = request.AnchorEntityId, TerminalEntityId = request.TerminalEntityId };
@@ -201,7 +297,7 @@ internal sealed class CompanionServer : IDisposable
         if (response.Code == ResultCode.Conflict) stats.RevisionConflicts++;
         if (config.LogRequests) log.Info("Companion request", new { incoming.Sender, request.RequestId, request.Kind, response.Code });
         transport.SendMessageTo(CompanionProtocol.Channel, bytes, incoming.Sender);
-        if (request.Kind == MessageKind.PublishProfile && response.Code == ResultCode.Ok)
+        if ((request.Kind == MessageKind.PublishProfile || request.Kind == MessageKind.SetAutomation || request.Kind == MessageKind.ProfileOperation) && response.Code == ResultCode.Ok)
             foreach (var subscriber in subscriptions.Keys)
                 if (subscriber != incoming.Sender && notificationPending.Add(subscriber)) notifications.Enqueue(subscriber);
     }
@@ -235,7 +331,8 @@ internal sealed class CompanionServer : IDisposable
     private void Advertise(ulong sender, Guid requestId) => Send(sender, new CompanionMessage
     {
         Kind = MessageKind.HelloAck, Epoch = epoch, RequestId = requestId,
-        Capabilities = Capabilities, DeadlineUtcTicks = ServerNow
+        Capabilities = Capabilities, DeadlineUtcTicks = ServerNow,
+        Body = store.Available ? automation.Manifest().Encode() : Array.Empty<byte>()
     });
     private void Send(ulong sender, CompanionMessage message)
     {
@@ -255,6 +352,7 @@ internal sealed class CompanionServer : IDisposable
         transport.UnregisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
         session.OnSavingCheckpoint -= Saving;
         session.Players.PlayersChanged -= PlayersChanged;
+        automation.Dispose();
         store.Flush();
         PluginStats.Clear("UnifiedStorage");
     }

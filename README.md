@@ -16,9 +16,9 @@ The current client implementation includes:
 - generic loadouts with target/supply/return groups, overlap conflict protection, explicit empty-bottle refill jobs, and idle-assembler draining;
 - bounded, acknowledgement-driven execution with access, capacity, constraint, and vanilla-equivalent conveyor reachability checks before every transfer.
 
-The plugin works fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. An optional Magnetar companion now implements the first server milestone: secure discovery and revisioned, world-local shared settings. Authoritative transfers and server-owned automation remain planned; see [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
+The plugin works fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. The optional Magnetar companion adds revisioned shared settings, batched transfers/rebalance, server-owned refinery/production/loadout services, and explicit bottle-refill/assembler-drain jobs. All server mutation capabilities default off pending live acceptance. Unattended services additionally require profile-owner opt-in. See [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
 
-The client entry point is **Inventory groups → Shared profile**. Fetch and inspect a server snapshot, explicitly publish local settings, or adopt a fetched revision. Only the profile owner can publish; faction members may read when sharing and operator policy allow it. Adoption keeps unmatched private groups, writes a separate local backup, and leaves maintenance switches off. No companion means this feature is unavailable; normal inventory operations remain unchanged.
+The client entry point is **Inventory groups → Shared profile**. Fetch, inspect, publish or adopt a revision; **Server automation** manages ownership and run-now/status requests; **Profile tools** supports section patches, binding recovery and archived deletion. Only the profile owner can publish; faction members may read when sharing and operator policy allow it. Adoption keeps unmatched private groups, writes a separate local backup, and leaves maintenance switches off. Paged profiles support up to 256 KiB; legacy companions retain their smaller limit. No companion means normal inventory operations remain available, with a discovery grace period before remembered client maintainers start.
 
 ## Build and test
 
@@ -37,11 +37,13 @@ To build the optional companion, install the Space Engineers Dedicated Server an
 dotnet build ServerPlugin/ServerPlugin.csproj -c Release -p:RunPostBuildEvent=Never
 ```
 
-The companion's operator settings use Magnetar PluginSdk (`UnifiedStorage.companion.cfg`); ship settings live separately in the world's `Storage/UnifiedStorage.server-profiles.xml`. Builds have been checked, but this first milestone still needs a live dedicated-server multiplayer acceptance pass before production deployment. See [SERVER_COMPANION_IMPLEMENTATION.md](Docs/SERVER_COMPANION_IMPLEMENTATION.md) for implemented limits and the remaining work.
+The companion's operator settings use Magnetar PluginSdk (`UnifiedStorage.companion.cfg`); ship settings live separately in the world's `Storage/UnifiedStorage.server-profiles.xml`. Builds and a live single-client owner-path smoke test have passed. The full dedicated-server multiplayer acceptance matrix remains required before production deployment. See [SERVER_COMPANION_IMPLEMENTATION.md](Docs/SERVER_COMPANION_IMPLEMENTATION.md) for evidence, implemented limits and the remaining work.
 
 ## Safety boundary
 
-The projected UI never creates a synthetic game inventory and never mutates replicated state directly. Every transfer uses `MyInventory.TransferByUser` only after checking the concrete source and destination, current access, group membership, live constraints, capacity, sorter-aware reachable endpoints, and the plain conveyor reachability result. Conveyor automation send/receive flags do not restrict manual transfers. Production is add-only; the plugin never clears or reorders a player's assembler queues.
+When an updated companion advertises a capability, the corresponding UI action sends a bounded intent. The server resolves selectors and stack compatibility itself and rechecks endpoint rights and conveyor routes. Timeouts never replay submitted intents through vanilla. Server ownership suppresses matching client maintainers; stale ownership fails closed. This coordinates updated Unified Storage clients, not arbitrary scripts or older clients. Client source builds require `ClientPlugin`, `Shared`, and `Runtime`; server builds require `ServerPlugin`, `Shared`, and `Runtime`.
+
+The projected UI never creates a synthetic game inventory and never mutates replicated state directly. In standalone mode, every transfer uses `MyInventory.TransferByUser` only after checking the concrete source and destination, current access, group membership, live constraints, capacity, sorter-aware reachable endpoints, and the plain conveyor reachability result. Conveyor automation send/receive flags do not restrict manual transfers. Production is add-only; the plugin never clears or reorders a player's assembler queues.
 
 ## Reporting bugs
 

@@ -32,6 +32,9 @@ public sealed class RefinerySortExecutor
         active ??= jobs.Count > 0 ? jobs.Dequeue() : null;
         if (active == null)
             return;
+        if (!active.Waiting && Plugin.Instance.Companion?.Busy == true) return;
+        if (Plugin.Instance.Companion?.AllowsLocal(active.Refinery.CubeGrid, Shared.Companion.CompanionCapabilities.RefineryAutomation) == false)
+        { active = null; return; }
         if (active.Refinery.Closed || !active.Refinery.HasPlayerAccess(active.IdentityId) ||
             (active.CanContinue != null && !active.CanContinue()))
         {

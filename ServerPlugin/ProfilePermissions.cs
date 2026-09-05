@@ -41,6 +41,9 @@ internal sealed class ProfilePermissions
         return true;
     }
 
+    public bool HasAccess(MyCubeBlock block, ulong sender) => block != null && !block.MarkedForClose &&
+        hasRights(block, new EndpointId(sender), ValidationType.Access | ValidationType.Ownership) == ValidationResult.Passed;
+
     public static bool CanRead(SharedScopeProfile profile, long identity, bool allowFaction)
     {
         if (!MyEntities.TryGetEntityById(profile.AnchorEntityId, out var entity) || entity is not MyCubeGrid anchor ||

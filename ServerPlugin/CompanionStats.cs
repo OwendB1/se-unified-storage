@@ -4,6 +4,20 @@ namespace ServerPlugin;
 
 public sealed class CompanionStats
 {
+    [Counter("Refinery swaps", OverTime = TimeAggregation.Last)]
+    public long RefinerySwaps { get; set; }
+    [Counter("Assembler queue additions", OverTime = TimeAggregation.Last)]
+    public long QueueAdditions { get; set; }
+    [Gauge("Last intent processing time (milliseconds)")]
+    public double LastRequestMilliseconds { get; set; }
+    [Gauge("Server-owned automation profiles")]
+    public int AutomationProfiles { get; set; }
+    [Gauge("Active utility jobs")]
+    public int UtilityJobs { get; set; }
+    [Counter("Authoritative physical transfers", OverTime = TimeAggregation.Last)]
+    public long TransferAllocations { get; set; }
+    [Counter("Incomplete or uncertain transfer intents", OverTime = TimeAggregation.Last)]
+    public long PartialTransfers { get; set; }
     [Counter("Requests completed", OverTime = TimeAggregation.Last)]
     public long Completed { get; set; }
     [Counter("Requests rejected", OverTime = TimeAggregation.Last)]

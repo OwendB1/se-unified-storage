@@ -81,49 +81,7 @@ public static class ProjectionViewBuilder
     }
 
     internal static IReadOnlyList<HashSet<long>> FindConveyorNetworks(MechanicalInventoryScope scope)
-    {
-        // A flight seat can implement the endpoint interface without any model
-        // conveyor ports. Line count includes unconnected ports, not just links.
-        var descriptors = scope.Inventories
-            .Where(descriptor => Resolve(descriptor.Owner)?.ConveyorEndpoint?.GetLineCount() > 0).ToArray();
-        var endpointGroups = new List<HashSet<long>>();
-        var remaining = new HashSet<long>(descriptors.Select(descriptor => descriptor.OwnerEntityId));
-        var endpoints = descriptors.GroupBy(descriptor => descriptor.OwnerEntityId)
-            .Select(group => (Id: group.Key, Endpoint: Resolve(group.First().Owner)))
-            .ToDictionary(pair => pair.Id, pair => pair.Endpoint);
-        while (remaining.Count > 0)
-        {
-            var rootId = remaining.Min();
-            var group = new HashSet<long> { rootId };
-            var endpoint = endpoints[rootId];
-            if (endpoint != null)
-            {
-                var reachable = new List<IMyConveyorEndpoint>();
-                MyGridConveyorSystem.FindReachable(endpoint.ConveyorEndpoint, reachable);
-                MyGridConveyorSystem.FindReachableInverted(endpoint.ConveyorEndpoint, reachable);
-                foreach (var pair in endpoints)
-                    if (pair.Value != null && reachable.Contains(pair.Value.ConveyorEndpoint))
-                        group.Add(pair.Key);
-            }
-            // Opposing sorter branches can reach the same inventory. Merge those
-            // components so a physical inventory never appears in two networks.
-            foreach (var previous in endpointGroups.Where(previous => previous.Overlaps(group)).ToArray())
-            {
-                group.UnionWith(previous);
-                endpointGroups.Remove(previous);
-            }
-            remaining.ExceptWith(group);
-            endpointGroups.Add(group);
-        }
-        return endpointGroups.OrderBy(ids => ids.Min()).ToArray();
-    }
-
-    private static IMyConveyorEndpointBlock Resolve(Sandbox.Game.Entities.MyCubeBlock block)
-    {
-        if (block is IMyConveyorEndpointBlock endpoint)
-            return endpoint;
-        return block.Components.TryGet<IMyConveyorEndpointBlock>(out var component) ? component : null;
-    }
+        => ConveyorNetworkResolver.Find(scope);
 
     private static InventoryProjection Filter(
         InventoryProjection source,

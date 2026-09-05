@@ -72,7 +72,7 @@ internal sealed class GasSystemFilterOverlay : MyGuiControlBase
         new(red, green, blue, (byte)(MathHelper.Clamp(alpha, 0f, 1f) * byte.MaxValue));
 }
 
-internal sealed class UnifiedTerminalController : IDisposable
+internal sealed partial class UnifiedTerminalController : IDisposable
 {
     private enum PaneFilter
     {
@@ -580,7 +580,7 @@ internal sealed class UnifiedTerminalController : IDisposable
                         pane.FocusedProjected = context;
                         ProjectedItemDoubleClicked(pane, context, args);
                     },
-                    roles => Rebalance(session, roles),
+                    roles => Rebalance(session, roles, view.Id),
                     roles => MyGuiSandbox.AddScreen(new MemberManagementScreen(session, roles, profile)),
                     section => ConfigureSection(session, projection, section),
                     section => RunUtility(session, projection, section),
@@ -725,12 +725,16 @@ internal sealed class UnifiedTerminalController : IDisposable
         {
             if (destinationGrid.UserData is MyInventory realDestination)
             {
+                if (TryCompanionTransfer(projected, sourceGrid.UserData as ProjectedGridContext,
+                        null, default, realDestination, null, requestedAmount)) return;
                 QueueProjected(TransferPlanFactory.Withdraw(projected, realDestination, requestedAmount, GetFlags),
                     sourceGrid.UserData as ProjectedGridContext);
                 return;
             }
             if (destinationGrid.UserData is ProjectedGridContext projectedDestination)
             {
+                if (TryCompanionTransfer(projected, sourceGrid.UserData as ProjectedGridContext,
+                        null, default, null, projectedDestination, requestedAmount)) return;
                 QueueProjected(TransferPlanFactory.BetweenScopes(
                     projected,
                     requestedAmount,
@@ -745,6 +749,7 @@ internal sealed class UnifiedTerminalController : IDisposable
             sourceGrid.UserData is MyInventory realSource &&
             destinationGrid.UserData is ProjectedGridContext destination)
         {
+            if (TryCompanionTransfer(null, null, realSource, realItem, null, destination, requestedAmount)) return;
             QueueProjected(TransferPlanFactory.Deposit(
                 realSource,
                 realItem,
@@ -833,10 +838,12 @@ internal sealed class UnifiedTerminalController : IDisposable
             return;
         if (!targetPane.ShowGrid && targetPane.FocusedReal?.UserData is MyInventory destination)
         {
+            if (TryCompanionTransfer(projected, source, null, default, destination, null, projected.Amount)) return;
             QueueProjected(TransferPlanFactory.Withdraw(projected, destination, projected.Amount, GetFlags), source);
             return;
         }
         var target = targetPane.FocusedProjected;
+        if (target != null && TryCompanionTransfer(projected, source, null, default, null, target, projected.Amount)) return;
         if (target != null)
             QueueProjected(TransferPlanFactory.BetweenScopes(
                 projected,
@@ -853,6 +860,7 @@ internal sealed class UnifiedTerminalController : IDisposable
             grid.UserData is not MyInventory inventory ||
             grid.GetItemAt(args.ItemIndex)?.UserData is not MyPhysicalInventoryItem item)
             return;
+        if (TryCompanionTransfer(null, null, inventory, item, null, target, item.Amount)) return;
         QueueProjected(TransferPlanFactory.Deposit(
             inventory,
             item,
@@ -864,10 +872,12 @@ internal sealed class UnifiedTerminalController : IDisposable
 
     private void Rebalance(
         MechanicalInventorySession session,
-        IReadOnlyList<InventoryRoleProjection> roles)
+        IReadOnlyList<InventoryRoleProjection> roles, string viewId)
     {
         try
         {
+            if (CompanionActions.TryRun(session.Scope, profiles[session], Shared.Companion.ShipAction.Rebalance,
+                roles.Select(role => Selection(session.Scope, role, viewId)).ToList())) return;
             RebalanceSection(session, roles);
         }
         catch (Exception exception)
@@ -941,6 +951,10 @@ internal sealed class UnifiedTerminalController : IDisposable
         var profile = profiles[session];
         // Utilities are explicitly ship-wide, not actions on possibly overlapping display rows.
         projection = session.Refresh();
+        if (section.Kind == InventorySectionKind.UnifiedCargo &&
+            CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.RefillBottles)) return;
+        if (section.Kind == InventorySectionKind.Assemblers &&
+            CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.DrainAssemblers)) return;
         if (section.Kind == InventorySectionKind.UnifiedCargo)
         {
             Plugin.Instance.BottleRefills.Start(
@@ -961,7 +975,10 @@ internal sealed class UnifiedTerminalController : IDisposable
     }
 
     private void SortRefineries(MechanicalInventorySession session)
-        => SortRefineries(session.Scope, profiles[session]);
+    {
+        if (!CompanionActions.TryRun(session.Scope, profiles[session], Shared.Companion.ShipAction.SortRefineries))
+            SortRefineries(session.Scope, profiles[session]);
+    }
 
     private static void SortRefineries(MechanicalInventoryScope scope, ScopeProfile profile,
         IEnumerable<InventoryDescriptor> selected = null)

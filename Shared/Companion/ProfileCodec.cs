@@ -17,29 +17,32 @@ public sealed class SharedScopeProfile
     public long AnchorEntityId { get; set; }
     public long OwnerIdentityId { get; set; }
     public bool FactionShared { get; set; }
+    public CompanionCapabilities Automation { get; set; }
     public ScopeProfile Settings { get; set; }
 }
 
 public static class ProfileCodec
 {
-    public const int MaxSettingsBytes = 32 * 1024;
+    public const int MaxSettingsBytes = 256 * 1024;
 
-    public static byte[] Encode<T>(T value)
+    public static byte[] Encode<T>(T value) => EncodeDocument(value, CompanionProtocol.MaxBodyBytes);
+    public static byte[] EncodeDocument<T>(T value, int maximum = MaxSettingsBytes)
     {
         using var stream = new MemoryStream();
         using (var writer = XmlWriter.Create(stream, new XmlWriterSettings { Encoding = new UTF8Encoding(false) }))
             Serializer<T>.Value.Serialize(writer, value);
-        if (stream.Length > CompanionProtocol.MaxBodyBytes) throw new InvalidDataException("Profile exceeds the protocol size limit.");
+        if (stream.Length > maximum) throw new InvalidDataException("Profile exceeds the size limit.");
         return stream.ToArray();
     }
 
-    public static T Decode<T>(byte[] bytes)
+    public static T Decode<T>(byte[] bytes) => DecodeDocument<T>(bytes, CompanionProtocol.MaxBodyBytes);
+    public static T DecodeDocument<T>(byte[] bytes, int maximum = MaxSettingsBytes)
     {
-        if (bytes == null || bytes.Length > CompanionProtocol.MaxBodyBytes) throw new InvalidDataException("Profile too large.");
+        if (bytes == null || bytes.Length > maximum) throw new InvalidDataException("Profile too large.");
         var settings = new XmlReaderSettings
         {
             DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
-            MaxCharactersInDocument = CompanionProtocol.MaxBodyBytes
+            MaxCharactersInDocument = maximum
         };
         using var stream = new MemoryStream(bytes, false);
         using (var check = XmlReader.Create(stream, settings))
@@ -51,7 +54,7 @@ public static class ProfileCodec
         return (T)Serializer<T>.Value.Deserialize(reader);
     }
 
-    public static ScopeProfile Clone(ScopeProfile profile) => Decode<ScopeProfile>(Encode(profile));
+    public static ScopeProfile Clone(ScopeProfile profile) => DecodeDocument<ScopeProfile>(EncodeDocument(profile));
 
     public static void Validate(ScopeProfile profile)
     {
@@ -84,9 +87,12 @@ public static class ProfileCodec
                 (record.Flags & ~(InventoryManagementFlags.ManualBlock | InventoryManagementFlags.ReservedInventory |
                                   InventoryManagementFlags.NoUnifiedCargoDestination)) != 0)
                 throw new InvalidDataException("Invalid management override.");
+        if (profile.InventoryManagement.Select(record => (record.BlockEntityId, record.InventoryIndex)).Distinct().Count() !=
+            profile.InventoryManagement.Count)
+            throw new InvalidDataException("Duplicate management override.");
         foreach (var list in new[] { profile.RefineryPriority.PinnedDefinitionIds, profile.RefineryPriority.ManualDefinitionIds })
             if (list.Count > 512 || list.Any(id => !Text(id, 512, true))) throw new InvalidDataException("Invalid ore priorities.");
-        if (Encode(profile).Length > MaxSettingsBytes) throw new InvalidDataException("Settings exceed 32 KiB. Reduce this profile before publishing.");
+        EncodeDocument(profile);
     }
 
     private static bool Defined<T>(T value) => Enum.IsDefined(typeof(T), value);

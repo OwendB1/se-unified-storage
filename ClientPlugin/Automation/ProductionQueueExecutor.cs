@@ -42,7 +42,9 @@ public sealed class ProductionQueueExecutor
         }
         if (requests.Count == 0)
             return;
+        if (Plugin.Instance.Companion?.Busy == true) return;
         var request = requests.Dequeue();
+        if (Plugin.Instance.Companion?.AllowsLocal(request.Assembler.CubeGrid, Shared.Companion.CompanionCapabilities.ComponentAutomation) == false) return;
         if (request.Assembler.Closed || request.Assembler.DisassembleEnabled || request.Assembler.IsSlave ||
             !request.Assembler.UseConveyorSystem || !request.Assembler.CanUseBlueprint(request.Blueprint) ||
             !request.Assembler.HasPlayerAccess(MySession.Static?.LocalPlayerId ?? 0L) ||

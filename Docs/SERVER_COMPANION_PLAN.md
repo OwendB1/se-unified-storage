@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is a separate, optional companion. Implementation has started with secure discovery and persistence-only shared profiles; authoritative inventory operations and server-owned automation are not implemented yet. See [SERVER_COMPANION_IMPLEMENTATION.md](SERVER_COMPANION_IMPLEMENTATION.md) for the exact implemented subset, current limits, verification and next steps. It is not required by the client-only implementation in [CLIENT_PLUGIN_PLAN.md](CLIENT_PLUGIN_PLAN.md), and the client must remain functional against an unmodified Space Engineers server.
+This is a separate, optional companion. Current source implements shared profiles with paging/section patches/lifecycle tools, authoritative transfers and rebalance, coordinated refinery/production/loadout services, and bounded utility jobs. Mutation capabilities are experimental and default off. Source/build checks are not a substitute for the dedicated-server acceptance matrix, which remains open. See [SERVER_COMPANION_IMPLEMENTATION.md](SERVER_COMPANION_IMPLEMENTATION.md) for current bounds and known limitations. The companion is not required by [CLIENT_PLUGIN_PLAN.md](CLIENT_PLUGIN_PLAN.md).
 
 The companion consists of a Magnetar server plugin plus the smallest corresponding integration in the Pulsar client plugin. It does not replace the unified client UI or create a real virtual inventory. Its purpose is to augment the complete client-only feature set with authoritative batching, shared settings, cross-client coordination, unattended automation, validation, and observability.
 
@@ -232,7 +232,11 @@ Useful runtime statistics include accepted and rejected intents, profile loads a
 
 ## Implementation order
 
-The initial implementation covers discovery, the bounded request journal, and a persistence-only profile vertical slice. The remaining steps below are still the full target plan, not a claim of completion. Initial profile publication is a compare-and-swap snapshot, not yet the granular field-patch protocol. Settings larger than 32 KiB are explicitly rejected until paged transport is implemented.
+The initial persistence-only vertical slice has been extended through the feature steps below. Publication supports revision-bound 16 KiB pages up to a 256 KiB document; explicit section patches preserve untouched regions. The list remains the target architecture and acceptance checklist, not a claim that every multiplayer/failure scenario has passed. Current defaults and remaining limitations are recorded in the implementation status document.
+
+The 2026-09-05 live Magnetar owner-path smoke test verified discovery, fetch, publication through revision 2, inspection, backed-up local adoption, and debounced server persistence with a previous-revision backup. Multi-client permission/conflict and lifecycle acceptance remain pending; see [SERVER_COMPANION_IMPLEMENTATION.md](SERVER_COMPANION_IMPLEMENTATION.md) for evidence and limits.
+
+The subsequent source milestone wires normal unified transfers to bounded authoritative intents, with independent capability gating and no timeout replay. It reuses definition/group adapters from `Runtime` and the pure distribution core from `Shared/Planning`. The generic adapters are game-dependent, not a claim that all remaining refinery/production/loadout calculations have been extracted into pure shared planners. Transfer execution remains disabled by default until the endpoint/conveyor comparison matrix below has passed on a dedicated server.
 
 1. Finish and validate the complete client-only transfer, exclusions, refinery-priority, and component-target paths.
 2. Define the fixed secure mod-message channel, magic/version envelope, payload limit, proactive and client-initiated handshake, and independent transfer, settings, refinery-automation, target-automation, loadout-automation, and utility-job flags.

@@ -4,11 +4,12 @@
     <RepoId>OwendB1/se-unified-storage</RepoId>
     <FriendlyName>Unified Storage Server Companion</FriendlyName>
     <Author>Owen de Bree</Author>
-    <Tooltip>Experimental, optional shared ship settings for the Unified Storage client plugin.</Tooltip>
-    <Description>Experimental persistence-only companion for Unified Storage, loaded by Magnetar. Adds authenticated discovery, revisioned world-local ship profiles, owner-controlled publication, optional faction reading, and explicit client adoption. Shared settings include inventory groups, exclusions, refinery priorities, component targets and loadouts. Operator configuration uses Magnetar PluginSdk. The client remains usable without this companion. Authoritative transfers and unattended server automation are not implemented. Live dedicated-server multiplayer acceptance testing is still pending; use a test server first.</Description>
+    <Tooltip>Optional shared profiles, authoritative inventory actions and coordinated automation.</Tooltip>
+    <Description>Experimental Unified Storage companion for Magnetar. Provides authenticated, revisioned world-local profiles with paging and recovery tools; optional authoritative transfers and rebalance; owner-controlled refinery, component and loadout services; and cancellable bottle-refill and idle-assembler-drain jobs. Operator settings use Magnetar PluginSdk. Server mutation capabilities default off and unattended services also require explicit profile-owner opt-in. The client remains usable without the companion. Full multiplayer gameplay acceptance is pending; use a test server first.</Description>
     <SourceDirectories>
         <Directory>ServerPlugin</Directory>
         <Directory>Shared</Directory>
+        <Directory>Runtime</Directory>
     </SourceDirectories>
     <Commit>546f5cd5d215100d82c1e4c8ef335760fbea8982</Commit>
 </PluginData>

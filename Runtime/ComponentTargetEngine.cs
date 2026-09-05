@@ -143,29 +143,22 @@ public static class ComponentTargetEngine
     public static IReadOnlyList<ProductionRequest> PlanDeficits(IEnumerable<ComponentTargetStatus> statuses)
     {
         var orderedStatuses = statuses?.ToArray() ?? Array.Empty<ComponentTargetStatus>();
-        var remaining = orderedStatuses.ToDictionary(status => status.ComponentId, status => status.Deficit);
         var requests = new List<ProductionRequest>();
-        foreach (var status in orderedStatuses.Where(status =>
-                     remaining[status.ComponentId] > MyFixedPoint.Zero && status.Blueprint != null &&
-                     status.EligibleAssemblers.Count > 0))
+        var snapshots = orderedStatuses.Select(status => new ProductionTargetCore
         {
-            var resultAmount = status.Blueprint.Results
-                .Where(result => result.Id == status.ComponentId)
-                .Aggregate(MyFixedPoint.Zero, (sum, result) => sum + result.Amount);
-            if (resultAmount <= MyFixedPoint.Zero)
-                continue;
-            var runs = MyFixedPoint.Ceiling((MyFixedPoint)
-                ((decimal)remaining[status.ComponentId] / (decimal)resultAmount));
-            var assembler = status.EligibleAssemblers.OrderBy(EstimatedQueueSeconds)
-                .ThenBy(candidate => candidate.EntityId).First();
+            Item = status.ComponentId.ToString(), Deficit = (decimal)status.Deficit,
+            Outputs = status.Blueprint?.Results.GroupBy(output => output.Id.ToString())
+                .ToDictionary(group => group.Key, group => group.Sum(output => (decimal)output.Amount)),
+            Assemblers = status.EligibleAssemblers.Select(assembler => (assembler.EntityId, EstimatedQueueSeconds(assembler))).ToArray()
+        }).ToArray();
+        foreach (var addition in AutomationPlannerCore.Production(snapshots))
+        {
+            var status = orderedStatuses[addition.TargetIndex];
+            var runs = (MyFixedPoint)addition.Runs;
+            var assembler = status.EligibleAssemblers.First(candidate => candidate.EntityId == addition.Assembler);
             var queuedAtPlan = assembler.Queue.Where(item => ReferenceEquals(item.Blueprint, status.Blueprint))
                 .Aggregate(MyFixedPoint.Zero, (sum, item) => sum + item.Amount);
             requests.Add(new ProductionRequest(assembler, status.Blueprint, runs, queuedAtPlan));
-            foreach (var output in status.Blueprint.Results)
-                if (remaining.TryGetValue(output.Id, out var outputDeficit))
-                    remaining[output.Id] = MyFixedPoint.Max(
-                        outputDeficit - output.Amount * runs,
-                        MyFixedPoint.Zero);
         }
         return requests;
     }
@@ -175,17 +168,10 @@ public static class ComponentTargetEngine
         IReadOnlyList<MyBlueprintDefinitionBase> choices,
         string overrideId)
     {
-        if (!string.IsNullOrEmpty(overrideId) && MyDefinitionId.TryParse(overrideId, out var id))
-        {
-            var selected = choices.FirstOrDefault(candidate => candidate.Id == id);
-            if (selected != null)
-                return selected;
-        }
         var canonical = MyDefinitionManager.Static.TryGetBlueprintDefinitionByResultId(componentId);
-        if (canonical != null && choices.Contains(canonical))
-            return canonical;
-        var safe = choices.Where(choice => choice.IsPrimary && choice.Results.Length == 1).ToArray();
-        return safe.Length == 1 ? safe[0] : choices.Count == 1 ? choices[0] : null;
+        var index = AutomationPlannerCore.Blueprint(overrideId, canonical?.Id.ToString(),
+            choices.Select(choice => (choice.Id.ToString(), choice.IsPrimary && choice.Results.Length == 1)).ToArray());
+        return index < 0 ? null : choices[index];
     }
 
     private static bool IsEligible(
@@ -208,7 +194,7 @@ public static class ComponentTargetEngine
         var speed = Math.Max(0.001f,
             Sandbox.Game.World.MySession.Static.AssemblerSpeedMultiplier *
             (((MyAssemblerDefinition)assembler.BlockDefinition).AssemblySpeed +
-             assembler.UpgradeValues["Productivity"]));
+             (assembler.UpgradeValues.TryGetValue("Productivity", out var productivity) ? productivity : 0f)));
         return assembler.Queue.Sum(item => (double)item.Amount *
             item.Blueprint.BaseProductionTimeInSeconds / speed);
     }
@@ -236,7 +222,7 @@ public static class ComponentTargetEngine
     private static Dictionary<MyDefinitionId, MyFixedPoint> CountQueued(IEnumerable<MyAssembler> assemblers)
     {
         var result = new Dictionary<MyDefinitionId, MyFixedPoint>();
-        foreach (var queueItem in assemblers.SelectMany(assembler => assembler.Queue))
+        foreach (var queueItem in assemblers.Where(assembler => !assembler.DisassembleEnabled).SelectMany(assembler => assembler.Queue))
         foreach (var output in queueItem.Blueprint.Results.Where(output =>
                      output.Id.TypeId == typeof(MyObjectBuilder_Component)))
             result[output.Id] = (result.TryGetValue(output.Id, out var value) ? value : MyFixedPoint.Zero) +
