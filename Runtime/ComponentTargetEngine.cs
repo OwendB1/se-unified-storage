@@ -59,13 +59,14 @@ public static class ComponentTargetEngine
         getFlags ??= _ => InventoryManagementFlags.None;
         var assemblers = scope.Inventories.Select(descriptor => descriptor.Owner)
             .OfType<MyAssembler>().Distinct().ToArray();
-        var allBlueprints = GetBlueprints(assemblers);
-        var componentIds = MyDefinitionManager.Static.GetPhysicalItemDefinitions()
-            .Select(definition => definition.Id)
-            .Where(id => id.TypeId == typeof(MyObjectBuilder_Component))
-            .Concat(allBlueprints.SelectMany(blueprint => blueprint.Results)
-                .Where(result => result.Id.TypeId == typeof(MyObjectBuilder_Component))
-                .Select(result => result.Id))
+        var allBlueprints = GetBlueprints(assemblers)
+            .Where(blueprint => assemblers.Any(assembler => assembler.CanUseBlueprint(blueprint)))
+            .ToArray();
+        // Discover components from actual assembler capabilities, not the global item catalog.
+        // This includes modded recipes without offering loot-only components as targets.
+        var componentIds = allBlueprints.SelectMany(blueprint => blueprint.Results)
+            .Where(output => output.Id.TypeId == typeof(MyObjectBuilder_Component) && output.Amount > MyFixedPoint.Zero)
+            .Select(output => output.Id)
             .Distinct()
             .OrderBy(DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(id => id.ToString(), StringComparer.Ordinal)
@@ -77,8 +78,7 @@ public static class ComponentTargetEngine
         foreach (var componentId in componentIds)
         {
             var choices = allBlueprints.Where(blueprint =>
-                    blueprint.Results.Any(output => output.Id == componentId) &&
-                    assemblers.Any(assembler => assembler.CanUseBlueprint(blueprint)))
+                    blueprint.Results.Any(output => output.Id == componentId && output.Amount > MyFixedPoint.Zero))
                 .OrderByDescending(blueprint => blueprint.IsPrimary)
                 .ThenBy(blueprint => blueprint.Results.Length == 1 ? 0 : 1)
                 .ThenByDescending(blueprint => blueprint.Priority)

@@ -62,6 +62,8 @@ Use both a local world and an unmodified multiplayer server.
 
 ## Component targets
 
+- Verify the 12-row viewport, separate target/blueprint editor, maintenance/threshold row and evenly spaced footer buttons. Search, clear, scroll, save/reopen and empty results must keep the selected editor consistent; empty results disable target editing/saving.
+- List only positive component outputs of blueprint classes supported by the scope's actual vanilla/modded assemblers. Loot-only components (including plushies without a supported mod recipe) must not appear. Temporary machine state must not hide supported components. Previously saved unsupported targets remain persisted but are not offered or queued until support returns.
 - Test output amounts greater than one, co-products, ambiguous recipes, uncraftable modded components, and explicit blueprint overrides.
 - Confirm current stock plus all existing manual queue output satisfies a target before new work is appended.
 - Confirm cooperative, disassembly-mode, inaccessible, incompatible, missing-item, full-output, and maximum-queue assemblers are not selected.

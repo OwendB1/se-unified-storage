@@ -201,6 +201,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
     private MyGuiControlCombobox blueprint;
     private MyGuiControlCheckbox maintain;
     private MyGuiControlTextbox threshold;
+    private MyGuiControlButton saveTarget;
     private IReadOnlyList<ComponentTargetStatus> statuses;
     private string searchText = string.Empty;
 
@@ -217,11 +218,13 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
+        var selectedComponent = (table?.SelectedRow?.UserData as ComponentTargetStatus)?.ComponentId;
         statuses = ComponentTargetEngine.Evaluate(session.Scope, profile, getFlags);
         var search = new MyGuiControlSearchBox(
-            new Vector2(-0.4f, -0.33f),
-            new Vector2(0.8f, 0.04f),
+            new Vector2(-0.36f, -0.32f),
+            new Vector2(0.72f, 0.04f),
             MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER);
+        search.Name = "ComponentSearch";
         search.SearchText = searchText;
         search.OnTextChanged += value =>
         {
@@ -231,60 +234,71 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         Controls.Add(search);
         table = new MyGuiControlTable
         {
-            Position = new Vector2(-0.4f, -0.28f),
-            Size = new Vector2(0.8f, 0.4f),
+            Name = "ComponentTargets",
+            Position = new Vector2(-0.36f, -0.27f),
+            Size = new Vector2(0.72f, 0.42f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            ColumnsCount = 5
+            ColumnsCount = 5,
+            VisibleRowsCount = 12
         };
-        table.SetCustomColumnWidths(new[] { 0.3f, 0.16f, 0.16f, 0.16f, 0.22f });
+        table.SetCustomColumnWidths(new[] { 0.40f, 0.12f, 0.12f, 0.12f, 0.24f });
         foreach (var (index, name) in new[] { "Component", "Stock", "Queued", "Target", "Status" }.Select((name, index) => (index, name)))
             table.SetColumnName(index, new StringBuilder(name));
         table.ItemSelected += (_, _) => LoadSelected();
         Controls.Add(table);
-        PopulateTable();
 
-        Controls.Add(Label("Target", new Vector2(-0.38f, 0.16f)));
-        target = new MyGuiControlTextbox(new Vector2(-0.2f, 0.16f), "0", 18, type: MyGuiControlTextboxType.DigitsOnly)
+        Controls.Add(Label("Target", new Vector2(-0.36f, 0.21f)));
+        target = new MyGuiControlTextbox(new Vector2(-0.28f, 0.21f), "0", 18, type: MyGuiControlTextboxType.DigitsOnly)
         {
+            Name = "ComponentTargetQuantity",
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
             Size = new Vector2(0.15f, 0.04f)
         };
         Controls.Add(target);
-        Controls.Add(Label("Blueprint", new Vector2(-0.02f, 0.16f)));
+        Controls.Add(Label("Blueprint", new Vector2(-0.10f, 0.21f)));
         blueprint = new MyGuiControlCombobox(
-            new Vector2(0.12f, 0.16f), new Vector2(0.28f, 0.04f),
+            new Vector2(0.01f, 0.21f), new Vector2(0.35f, 0.04f),
             originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER);
+        blueprint.Name = "ComponentBlueprint";
         Controls.Add(blueprint);
-        Controls.Add(Button("Save target", new Vector2(0.32f, 0.23f), SaveSelected));
 
-        maintain = new MyGuiControlCheckbox(new Vector2(-0.38f, 0.25f))
+        maintain = new MyGuiControlCheckbox(new Vector2(-0.36f, 0.28f))
         {
+            Name = "MaintainComponentTargets",
             IsChecked = profile.MaintainComponentTargets,
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
         };
         Controls.Add(maintain);
-        Controls.Add(Label("Maintain targets (local automation)", new Vector2(-0.345f, 0.25f)));
-        Controls.Add(Label("Start threshold", new Vector2(-0.02f, 0.25f)));
-        threshold = new MyGuiControlTextbox(new Vector2(0.17f, 0.25f),
+        Controls.Add(Label("Maintain targets locally", new Vector2(-0.325f, 0.28f)));
+        Controls.Add(Label("Start threshold", new Vector2(0.08f, 0.28f)));
+        threshold = new MyGuiControlTextbox(new Vector2(0.26f, 0.28f),
             profile.ComponentStartThreshold.ToString("0.##", CultureInfo.InvariantCulture),
             8, type: MyGuiControlTextboxType.Normal)
         {
+            Name = "ComponentStartThreshold",
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
             Size = new Vector2(0.1f, 0.04f)
         };
         Controls.Add(threshold);
-        Controls.Add(Button("Craft deficits", new Vector2(0.16f, 0.32f), Craft));
-        Controls.Add(Button("Close", new Vector2(0.34f, 0.32f), () => CloseScreen()));
-        if (table.RowsCount > 0)
-            table.SetSelectedRow(0);
+        threshold.SetToolTip("Start crafting below this fraction of the target (0.01–1). Queued output counts toward the target.");
+        saveTarget = Button("Save target", new Vector2(-0.24f, 0.35f), SaveSelected);
+        Controls.Add(saveTarget);
+        Controls.Add(Button("Craft deficits", new Vector2(0, 0.35f), Craft));
+        Controls.Add(Button("Close", new Vector2(0.24f, 0.35f), () => CloseScreen()));
+        PopulateTable(selectedComponent);
     }
 
     private void LoadSelected()
     {
-        if (table.SelectedRow?.UserData is not ComponentTargetStatus status)
-            return;
-        target.Text = ((decimal)status.Target).ToString("0", CultureInfo.InvariantCulture);
+        var status = table.SelectedRow?.UserData as ComponentTargetStatus;
+        target.Enabled = blueprint.Enabled = saveTarget.Enabled = status != null;
         blueprint.ClearItems();
+        if (status == null)
+        {
+            target.Text = "0";
+            return;
+        }
+        target.Text = ((decimal)status.Target).ToString("0", CultureInfo.InvariantCulture);
         for (var index = 0; index < status.BlueprintChoices.Count; index++)
             blueprint.AddItem(index, status.BlueprintChoices[index].DisplayNameText ??
                 status.BlueprintChoices[index].Id.SubtypeName);
@@ -302,15 +316,19 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         }
     }
 
-    private void PopulateTable()
+    private void PopulateTable(MyDefinitionId? selectedComponent = null)
     {
         if (table == null)
             return;
+        selectedComponent ??= (table.SelectedRow?.UserData as ComponentTargetStatus)?.ComponentId;
         table.Clear();
+        var selectedIndex = 0;
         foreach (var status in statuses.Where(status => string.IsNullOrWhiteSpace(searchText) ||
                      DisplayName(status.ComponentId).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
                      status.ComponentId.ToString().IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0))
         {
+            if (status.ComponentId == selectedComponent)
+                selectedIndex = table.RowsCount;
             var row = new MyGuiControlTable.Row(status);
             row.AddCell(new MyGuiControlTable.Cell(
                 "   " + DisplayName(status.ComponentId),
@@ -323,7 +341,12 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             table.Add(row);
         }
         if (table.RowsCount > 0)
-            table.SetSelectedRow(0);
+        {
+            table.SetSelectedRow(selectedIndex);
+            table.ScrollToSelection();
+        }
+        // The first selection after clearing the table does not raise ItemSelected.
+        LoadSelected();
     }
 
     private void SaveSelected()
@@ -596,7 +619,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
         ScopeProfile profile,
         Func<InventoryDescriptor, InventoryManagementFlags> getFlags,
         Action sortNow)
-        : base("Refinery ore priority", new Vector2(0.7f, 0.78f))
+        : base("Refinery ore priority")
     {
         this.session = session;
         this.profile = profile;
@@ -606,6 +629,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
+        var selectedInput = table?.SelectedRow?.UserData as MyDefinitionId?;
         model = RefineryPriorityEngine.Build(session.Scope, profile, getFlags);
         if (!profile.RefineryPriority.Automatic)
         {
@@ -621,10 +645,12 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
         }
         table = new MyGuiControlTable
         {
-            Position = new Vector2(-0.31f, -0.28f),
-            Size = new Vector2(0.62f, 0.42f),
+            Name = "RefineryInputs",
+            Position = new Vector2(-0.36f, -0.31f),
+            Size = new Vector2(0.72f, 0.48f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            ColumnsCount = 3
+            ColumnsCount = 3,
+            VisibleRowsCount = 15
         };
         table.SetCustomColumnWidths(new[] { 0.15f, 0.6f, 0.25f });
         table.SetColumnName(0, new StringBuilder("#"));
@@ -644,14 +670,19 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
             table.Add(row);
         }
         Controls.Add(table);
-        automatic = Checkbox("Automatic priority", new Vector2(-0.29f, 0.19f), profile.RefineryPriority.Automatic,
+        if (table.RowsCount > 0)
+        {
+            var selectedIndex = model.OrderedInputs.ToList().FindIndex(id => selectedInput.HasValue && id == selectedInput.Value);
+            table.SetSelectedRow(Math.Max(0, selectedIndex));
+        }
+        automatic = Checkbox("Automatic priority", new Vector2(-0.34f, 0.27f), profile.RefineryPriority.Automatic,
             value => profile.RefineryPriority.Automatic = value);
-        autoSort = Checkbox("Auto-sort inputs", new Vector2(0.02f, 0.19f), profile.RefineryPriority.AutoSortInputs,
+        autoSort = Checkbox("Auto-sort inputs", new Vector2(0.02f, 0.27f), profile.RefineryPriority.AutoSortInputs,
             value => profile.RefineryPriority.AutoSortInputs = value);
-        Controls.Add(Button("Pin / unpin", new Vector2(-0.21f, 0.28f), TogglePin));
-        Controls.Add(Button("Move up", new Vector2(-0.06f, 0.28f), () => Move(-1)));
-        Controls.Add(Button("Move down", new Vector2(0.09f, 0.28f), () => Move(1)));
-        Controls.Add(Button("Sort now", new Vector2(0.24f, 0.28f), sortNow));
+        Controls.Add(Button("Pin / unpin", new Vector2(-0.27f, 0.34f), TogglePin));
+        Controls.Add(Button("Move up", new Vector2(-0.09f, 0.34f), () => Move(-1)));
+        Controls.Add(Button("Move down", new Vector2(0.09f, 0.34f), () => Move(1)));
+        Controls.Add(Button("Sort now", new Vector2(0.27f, 0.34f), sortNow));
     }
 
     private MyGuiControlCheckbox Checkbox(string label, Vector2 position, bool value, Action<bool> changed)

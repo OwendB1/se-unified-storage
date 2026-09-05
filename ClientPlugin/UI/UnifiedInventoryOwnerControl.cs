@@ -23,7 +23,7 @@ internal sealed class ProjectedGridContext
     }
 
     public UnifiedInventoryOwnerControl Owner { get; }
-    public InventoryRoleProjection Role { get; }
+    public InventoryRoleProjection Role { get; internal set; }
     public MyGuiControlGrid Grid { get; }
 }
 
@@ -36,6 +36,11 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
     private const float RoleHeaderHeight = 0.025f;
     private const float FooterHeight = 0.033f;
     private readonly List<MyGuiControlGrid> grids = new();
+    private readonly List<InventoryRoleProjection[]> sectionBindings = new();
+    private readonly List<MyGuiControlButton> rebalanceButtons = new();
+    private VisibleRole[] visibleRoles;
+    private string memberLayout;
+    private readonly MyGuiControlLabel totals;
 
     public UnifiedInventoryOwnerControl(
         MechanicalInventorySession session,
@@ -70,14 +75,11 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         BorderHighlightEnabled = true;
         BorderColor = MyGuiConstants.HIGHLIGHT_BACKGROUND_COLOR;
         BorderSize = 2;
+        BorderMargin = new Vector2(0.002f);
         CanFocusChildren = true;
 
-        var visibleRoles = projection.Roles
-            .Where(role => roleFilter?.Invoke(role) ?? true)
-            .Select(role => new VisibleRole(role,
-                role.Stacks.Where(stack => MatchesSearch(stack, search)).ToArray()))
-            .Where(entry => entry.Stacks.Count > 0 || string.IsNullOrWhiteSpace(search))
-            .ToArray();
+        visibleRoles = GetVisibleRoles(projection, search, roleFilter);
+        memberLayout = MemberLayout(visibleRoles, getFlags);
         var sections = visibleRoles.GroupBy(entry => entry.Role.Section).ToArray();
         var height = Padding * 2 + OwnerHeaderHeight + FooterHeight +
                      sections.Sum(section => GetSectionHeaderHeight(section.Key)) +
@@ -109,6 +111,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         foreach (var section in sections)
         {
             var sectionRoles = section.Select(entry => entry.Role).ToArray();
+            sectionBindings.Add(sectionRoles);
             var members = sectionRoles.SelectMany(role => role.Members).Select(member => member.OwnerEntityId).Distinct().Count();
             var reserved = sectionRoles.SelectMany(role => role.Members)
                 .GroupBy(member => (member.OwnerEntityId, member.InventoryIndex))
@@ -133,6 +136,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                     member.Roles.Any(candidate => candidate.Kind == role.Role &&
                                                    candidate.Accepts(stack.DefinitionId))) >= 2));
             Elements.Add(rebalanceButton);
+            rebalanceButtons.Add(rebalanceButton);
 
             var feature = FeatureName(section.Key);
             if (feature != null)
@@ -162,23 +166,86 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             }
         }
 
-        var uniqueInventories = projection.Roles.SelectMany(role => role.Members)
+        totals = new MyGuiControlLabel(
+            new Vector2(topLeft.X + 0.004f, Size.Y * 0.5f - FooterHeight),
+            textScale: 0.58f,
+            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP);
+        Elements.Add(totals);
+        UpdateTotals();
+    }
+
+    private void UpdateTotals()
+    {
+        var uniqueInventories = Projection.Roles.SelectMany(role => role.Members)
             .Select(member => member.Inventory).Distinct().ToArray();
         var mass = uniqueInventories.Aggregate(MyFixedPoint.Zero,
             (sum, inventory) => sum + inventory.CurrentMass);
         var volume = uniqueInventories.Aggregate(MyFixedPoint.Zero,
             (sum, inventory) => sum + inventory.CurrentVolume);
-        Elements.Add(new MyGuiControlLabel(
-            new Vector2(topLeft.X + 0.004f, Size.Y * 0.5f - FooterHeight),
-            text: $"Mass: {(double)mass:N2} kg    Volume: {(double)MyFixedPoint.MultiplySafe(volume, 1000):N2} L",
-            textScale: 0.58f,
-            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP));
+        totals.Text = $"Mass: {(double)mass:N2} kg    Volume: {(double)MyFixedPoint.MultiplySafe(volume, 1000):N2} L";
     }
 
     public MechanicalInventorySession Session { get; }
     public string ViewId { get; }
-    public InventoryProjection Projection { get; }
+    public InventoryProjection Projection { get; private set; }
     public IReadOnlyList<MyGuiControlGrid> Grids => grids;
+
+    // Quantity-only refreshes keep controls, selection, hover and scrollbar alive.
+    // Changed membership, ordering or stack identity takes the full rebuild path.
+    public bool TryRefresh(InventoryProjection projection, string search,
+        Func<InventoryRoleProjection, bool> roleFilter,
+        Func<InventoryDescriptor, InventoryManagementFlags> getFlags)
+    {
+        var next = GetVisibleRoles(projection, search, roleFilter);
+        if (next.Length != visibleRoles.Length || MemberLayout(next, getFlags) != memberLayout)
+            return false;
+        for (var i = 0; i < next.Length; i++)
+        {
+            var before = visibleRoles[i];
+            var after = next[i];
+            if (!before.Role.Section.Equals(after.Role.Section) || before.Role.Role != after.Role.Role ||
+                before.Stacks.Count != after.Stacks.Count)
+                return false;
+            for (var j = 0; j < after.Stacks.Count; j++)
+                if (before.Stacks[j].DefinitionId != after.Stacks[j].DefinitionId ||
+                    !before.Stacks[j].Sources.Select(source => (source.Inventory, source.ItemId))
+                        .SequenceEqual(after.Stacks[j].Sources.Select(source => (source.Inventory, source.ItemId))))
+                    return false;
+        }
+
+        Projection = projection;
+        visibleRoles = next;
+        for (var i = 0; i < grids.Count; i++)
+        {
+            ((ProjectedGridContext)grids[i].UserData).Role = next[i].Role;
+            for (var j = 0; j < next[i].Stacks.Count; j++)
+                grids[i].SetItemAt(j, CreateItem(next[i].Stacks[j], getFlags));
+        }
+        var roleIndex = 0;
+        for (var i = 0; i < sectionBindings.Count; i++)
+        {
+            var roles = sectionBindings[i];
+            for (var j = 0; j < roles.Length; j++)
+                roles[j] = next[roleIndex++].Role;
+            rebalanceButtons[i].Enabled = Plugin.Instance.Transfers.PendingCount == 0 && roles.Any(role =>
+                role.Stacks.Any(stack => role.Members.Count(member => member.Roles.Any(candidate =>
+                    candidate.Kind == role.Role && candidate.Accepts(stack.DefinitionId))) >= 2));
+        }
+        UpdateTotals();
+        return true;
+    }
+
+    private static VisibleRole[] GetVisibleRoles(InventoryProjection projection, string search,
+        Func<InventoryRoleProjection, bool> roleFilter) => projection.Roles
+        .Where(role => roleFilter?.Invoke(role) ?? true)
+        .Select(role => new VisibleRole(role, role.Stacks.Where(stack => MatchesSearch(stack, search)).ToArray()))
+        .Where(entry => entry.Stacks.Count > 0 || string.IsNullOrWhiteSpace(search))
+        .GroupBy(entry => entry.Role.Section).SelectMany(section => section).ToArray();
+
+    private static string MemberLayout(IEnumerable<VisibleRole> roles,
+        Func<InventoryDescriptor, InventoryManagementFlags> getFlags) => string.Join("\n", roles.Select(entry =>
+        GetSectionName(entry.Role) + ":" + string.Join(",", entry.Role.Members.Select(member =>
+            $"{member.OwnerEntityId}/{member.InventoryIndex}/{getFlags?.Invoke(member)}"))));
 
     public override MyGuiControlBase HandleInput()
     {
@@ -212,23 +279,27 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             grid.SetEmptyItemToolTip(constraint.Description);
         }
         foreach (var stack in entry.Stacks)
-        {
-            var item = MyGuiControlInventoryOwner.CreateInventoryGridItem(stack.ToDisplayItem());
-            var reservedAmount = stack.Sources.Where(source => source.Descriptor != null &&
-                    (getFlags?.Invoke(source.Descriptor) & InventoryManagementFlags.ReservedInventory) != 0)
-                .Aggregate(MyFixedPoint.Zero, (sum, source) => sum + source.SnapshotAmount);
-            if (reservedAmount > MyFixedPoint.Zero)
-            {
-                item.AddText("R", MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_TOP);
-                item.ToolTip ??= new MyToolTips();
-                item.ToolTip.AddToolTip($"Reserved / not counted: {reservedAmount}", 0.7f, "White");
-            }
-            item.UserData = stack;
-            grid.Add(item);
-        }
+            grid.Add(CreateItem(stack, getFlags));
         grid.ItemDragged += (_, args) => itemDragged?.Invoke(context, args);
         grid.ItemDoubleClicked += (_, args) => itemDoubleClicked?.Invoke(context, args);
         return grid;
+    }
+
+    private static MyGuiGridItem CreateItem(ProjectedInventoryStack stack,
+        Func<InventoryDescriptor, InventoryManagementFlags> getFlags)
+    {
+        var item = MyGuiControlInventoryOwner.CreateInventoryGridItem(stack.ToDisplayItem());
+        var reservedAmount = stack.Sources.Where(source => source.Descriptor != null &&
+                (getFlags?.Invoke(source.Descriptor) & InventoryManagementFlags.ReservedInventory) != 0)
+            .Aggregate(MyFixedPoint.Zero, (sum, source) => sum + source.SnapshotAmount);
+        if (reservedAmount > MyFixedPoint.Zero)
+        {
+            item.AddText("R", MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_TOP);
+            item.ToolTip ??= new MyToolTips();
+            item.ToolTip.AddToolTip($"Reserved / not counted: {reservedAmount}", 0.7f, "White");
+        }
+        item.UserData = stack;
+        return item;
     }
 
     private static MyGuiControlButton MakeButton(

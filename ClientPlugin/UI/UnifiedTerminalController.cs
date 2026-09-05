@@ -196,10 +196,10 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     public void Refresh()
     {
-        if (!Active)
+        if (!Active || dragAndDrop?.IsActive() == true)
             return;
-        RebuildPane(left);
-        RebuildPane(right);
+        RebuildPane(left, contentsOnly: true);
+        RebuildPane(right, contentsOnly: true);
         dirty = false;
     }
 
@@ -506,15 +506,18 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             Math.Max(0, Config.Current.RefreshDebounceMilliseconds));
     }
 
-    private void RebuildPane(Pane pane)
+    private void RebuildPane(Pane pane, bool contentsOnly = false)
     {
         if (!Active && controlsParent == null)
             return;
-        pane.FocusedProjected = null;
-        pane.FocusedReal = null;
         if (!pane.ShowGrid)
         {
             ApplyPaneLayout(pane);
+            // The native character owner already subscribes to inventory changes.
+            if (contentsOnly && pane.List.Controls.OfType<MyGuiControlInventoryOwner>().Any())
+                return;
+            pane.FocusedProjected = null;
+            pane.FocusedReal = null;
             var controls = new List<MyGuiControlBase>();
             if (user?.HasInventory == true)
             {
@@ -556,14 +559,22 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                     projection = ProjectionOrdering.ApplyRefineryPriority(
                         projection,
                         RefineryPriorityEngine.Build(session.Scope, profile, GetFlags));
-                var owner = new UnifiedInventoryOwnerControl(
+                bool Visible(InventoryRoleProjection role) => RoleVisible(role, pane.Filter) &&
+                    (!pane.HideEmpty.IsChecked || role.Stacks.Count > 0);
+                var existing = pane.List.Controls.OfType<UnifiedInventoryOwnerControl>().FirstOrDefault();
+                if (contentsOnly && existing != null && existing.Session == session && existing.ViewId == view.Id &&
+                    existing.TryRefresh(projection, search, Visible, GetFlags))
+                    return;
+                pane.FocusedProjected = null;
+                pane.FocusedReal = null;
+                UnifiedInventoryOwnerControl owner = null;
+                owner = new UnifiedInventoryOwnerControl(
                     session,
                     view.Id,
                     projection,
                     profile.Policy,
                     search,
-                    role => RoleVisible(role, pane.Filter) &&
-                            (!pane.HideEmpty.IsChecked || role.Stacks.Count > 0),
+                    Visible,
                     GetFlags,
                     (_, policy) =>
                     {
@@ -582,10 +593,10 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                     },
                     roles => Rebalance(session, roles, view.Id),
                     roles => MyGuiSandbox.AddScreen(new MemberManagementScreen(session, roles, profile)),
-                    section => ConfigureSection(session, projection, section),
-                    section => RunUtility(session, projection, section),
+                    section => ConfigureSection(session, owner.Projection, section),
+                    section => RunUtility(session, owner.Projection, section),
                     () => MyGuiSandbox.AddScreen(new InventoryGroupsScreen(session, profile)),
-                    () => MyGuiSandbox.AddScreen(new LoadoutScreen(session, projection, profile, default, GetFlags, plan => Queue(plan))));
+                    () => MyGuiSandbox.AddScreen(new LoadoutScreen(session, owner.Projection, profile, default, GetFlags, plan => Queue(plan))));
                 foreach (var grid in owner.Grids)
                 {
                     grid.ItemSelected += (_, _) => pane.FocusedProjected = grid.UserData as ProjectedGridContext;
@@ -598,6 +609,11 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                 ownerControls.Add(owner);
                 pane.FocusedProjected ??= owner.Grids.FirstOrDefault()?.UserData as ProjectedGridContext;
             }
+        }
+        if (ownerControls.Count == 0)
+        {
+            pane.FocusedProjected = null;
+            pane.FocusedReal = null;
         }
         pane.List.InitControls(ownerControls);
         started.Stop();

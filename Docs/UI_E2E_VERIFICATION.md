@@ -80,6 +80,21 @@ Network membership is cached between content refreshes and reconsidered by the s
 
 Screenshots: `Screenshots/20260905_0029_scopes.png`, `20260905_0031_whole_construct.png`, `20260905_0041_filtered_menu.png`, `20260905_0043_filtered_menu_mid2.png`, and `20260905_0044_filtered_other_ship.png` under the se-remote skill folder. Temporary live-check driver: `/tmp/se_scope_ui_verify.py`.
 
+## Component-target panel and assembler catalog (2026-09-05)
+
+Live on the NewTest Magnetar server, accessing Static Grid 3889, with the client devfolder build at 3440×1440:
+
+- Replaced the one-row table with a 12-row viewport, widened the component column, and separated the target/blueprint editor, maintenance/threshold row and three footer actions. Inspected the expanded blueprint menu and the last table rows; no overlapping controls.
+- Component discovery now uses positive component outputs of blueprint classes accepted by actual scoped assemblers, including modded definitions. The live scope lists 23 supported components; searching `plush` returns zero rows. There is no plushie blacklist: a supported mod recipe can legitimately add that component. Unsupported saved targets remain stored, not executable while unsupported.
+- Search, native X clear, table scrolling, automatic first-row/editor initialization, recipe population, save-selection/search retention, and empty-result disabled editor/save controls checked live. Explicitly load the editor and scroll to the selection after repopulating: the game's first `SetSelectedRow` after `Clear` does not send its selection event.
+- Saved a Steel Plate target of 367 (current stock), reopened and verified the quantity and selected recipe. Craft deficits was exercised with this already-satisfied target; this is a no-op check, not proof of deficit production. Reset the temporary target to zero afterward.
+- Maintenance and threshold settings survived close/reopen. Restored maintenance off and threshold 0.95. No nonzero production targets were left enabled.
+- Client and companion Release builds passed with no warnings/errors; existing core tests and diff whitespace checks passed. No new regression suite. Source changes are local; the running published companion has not been repinned for this UI pass.
+
+Screenshots: `/tmp/unified-targets-layout.png`, `/tmp/unified-targets-dropdown.png`, `/tmp/unified-targets-scroll.png`, and `/tmp/unified-targets-empty.png`. These checks cover the loaded world, not every mod pack, gamepad input, or alternate UI scale. The catalog uses native capabilities rather than hardcoded vanilla subtype lists; separate restricted/modded-assembler fixtures remain in the broader matrix.
+
+The earlier search-X report was corrected by the user: compositor/window geometry misdirected clicks. The speculative search-handler patch was removed; vanilla handles search clearing. KWin fullscreen was restored without changing the game's configured resolution.
+
 ## Remaining verification
 
 - Successful unified-to-unified transfers between distinct mechanical constructs remain unverified: the supplied docked pair has no usable conveyor route for the tested cargo (also rejected by vanilla). The previous se-remote slot-input blocker is resolved.
