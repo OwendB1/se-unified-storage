@@ -6,6 +6,7 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\ClientPlugin\UI\ListSelection.cs" Link="ListSelection.cs" />
     <Compile Include="..\Shared\Planning\DistributionPlannerCore.cs" Link="DistributionPlannerCore.cs" />
     <Compile Include="..\Runtime\WeaponCoreCompatibility.cs" Link="WeaponCoreCompatibility.cs" />
   </ItemGroup>

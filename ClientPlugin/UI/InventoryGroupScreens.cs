@@ -32,7 +32,7 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
 {
     private readonly MechanicalInventorySession session;
     private readonly ScopeProfile profile;
-    private MyGuiControlTable table;
+    private MultiSelectTable table;
 
     public InventoryGroupsScreen(MechanicalInventorySession session, ScopeProfile profile) : base("Inventory groups")
     {
@@ -42,7 +42,8 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
-        table = new MyGuiControlTable
+        var selectedIds = SelectedGroups.Select(group => group.Id).ToArray();
+        table = new MultiSelectTable
         {
             Name = "InventoryGroups", Position = new Vector2(-0.36f, -0.31f), Size = new Vector2(0.72f, 0.4f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP, ColumnsCount = 3, VisibleRowsCount = 12
@@ -61,23 +62,31 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
             table.Add(row);
         }
         Controls.Add(table);
-        table.SetToolTip("Select a live inventory group to edit, duplicate, reorder or delete. These actions change saved views, not inventory contents.");
+        table.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Duplicate, move and delete affect the selection. Edit requires exactly one row. No items are moved."));
+        table.RestoreSelection(Enumerable.Range(0, table.RowsCount).Where(index => selectedIds.Contains(((InventoryGroupRecord)table.GetRow(index).UserData).Id)));
         Controls.Add(Label("Groups are views. Creating or editing one does not move items.", new Vector2(-0.36f, 0.15f)));
         Controls.Add(Button("New", new Vector2(-0.24f, 0.21f), () => Edit(null)));
-        Controls.Add(Button("Edit", new Vector2(0, 0.21f), () => { if (Selected != null) Edit(Selected); }));
+        var edit = Button("Edit", new Vector2(0, 0.21f), () => { if (SelectedGroups.Count() == 1) Edit(SelectedGroups.Single()); });
+        edit.SetToolTip("Edit one selected group. Select exactly one row to enable this action.");
+        Controls.Add(edit);
+        table.SelectionChanged += () => edit.Enabled = SelectedGroups.Count() == 1;
+        edit.Enabled = SelectedGroups.Count() == 1;
         Controls.Add(Button("Duplicate", new Vector2(0.24f, 0.21f), () =>
         {
-            if (Selected == null) return;
-            var copy = Selected.Copy();
-            copy.Id = Guid.NewGuid().ToString("N"); copy.Name += " copy";
-            profile.Groups.Add(copy); Save();
+            foreach (var group in SelectedGroups.ToArray())
+            {
+                var copy = group.Copy();
+                copy.Id = Guid.NewGuid().ToString("N"); copy.Name += " copy";
+                profile.Groups.Add(copy);
+            }
+            Save();
         }));
         Controls.Add(Button("Move up", new Vector2(-0.24f, 0.275f), () => Move(-1)));
         Controls.Add(Button("Move down", new Vector2(0, 0.275f), () => Move(1)));
         Controls.Add(Button("Delete", new Vector2(0.24f, 0.275f), () =>
         {
-            if (Selected == null) return;
-            profile.Groups.Remove(Selected); Save(); // Referencing rules remain visible and paused.
+            foreach (var group in SelectedGroups.ToArray()) profile.Groups.Remove(group);
+            Save(); // Referencing rules remain visible and paused.
         }));
         Controls.Add(Button("Restore defaults", new Vector2(-0.24f, 0.34f), () =>
         {
@@ -99,7 +108,8 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
         Controls.Add(Button("Close", new Vector2(0.24f, 0.34f), () => CloseScreen()));
     }
 
-    private InventoryGroupRecord Selected => table.SelectedRow?.UserData as InventoryGroupRecord;
+    private IEnumerable<InventoryGroupRecord> SelectedGroups => table?.SelectedRows.Select(row => (InventoryGroupRecord)row.UserData)
+        ?? Enumerable.Empty<InventoryGroupRecord>();
     private void Edit(InventoryGroupRecord group) => MyGuiSandbox.AddScreen(new InventoryGroupEditor(session, group, value =>
     {
         var index = group == null ? -1 : profile.Groups.IndexOf(group);
@@ -108,11 +118,8 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
     }));
     private void Move(int offset)
     {
-        var selected = Selected;
-        var index = profile.Groups.IndexOf(selected);
-        if (index < 0 || index + offset < 0 || index + offset >= profile.Groups.Count) return;
-        profile.Groups.RemoveAt(index); profile.Groups.Insert(index + offset, selected); Save();
-        table.SelectedRow = table.GetRow(index + offset);
+        ListSelection.Move(profile.Groups, SelectedGroups, offset);
+        Save();
     }
     private void Save()
     {

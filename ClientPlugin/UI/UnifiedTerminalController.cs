@@ -97,7 +97,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         public MyGuiControlLabel HideEmptyLabel;
         public MyGuiControlRadioButton SystemFilterButton;
         public GasSystemFilterOverlay SystemFilterOverlay;
-        public MyGuiControlCombobox ScopeSelector;
+        public ScopeTreeCombobox ScopeSelector;
         public List<ScopeChoice> ScopeChoices = new();
         public string SelectedScopeId;
         public string ScopeChoicesSignature;
@@ -271,13 +271,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         pane.HideEmpty = Get<MyGuiControlCheckbox>("CheckboxHideEmpty" + prefix);
         pane.HideEmpty.SetToolTip("Hide empty inventory sections in this column. Does not exclude them from transfers or automation.");
         pane.HideEmptyLabel = Get<MyGuiControlLabel>("LabelHideEmpty" + prefix);
-        pane.ScopeSelector = new MyGuiControlCombobox(
+        pane.ScopeSelector = new ScopeTreeCombobox(
             new Vector2(pane.IsLeft ? -0.46f : 0.0225f, -0.225f),
-            new Vector2(0.437f, 0.035f),
-            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            openAreaItemsCount: 10,
-            isAutoscaleEnabled: true,
-            isAutoEllipsisEnabled: true)
+            new Vector2(0.437f, 0.035f))
         {
             Name = prefix + "UnifiedScope",
             Visible = false
@@ -703,7 +699,6 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             var gridId = session.Scope.Grids.Min(grid => grid.EntityId);
             var name = session.Scope.AnchorGrid.DisplayName;
             var duplicate = sessions.Count(other => other.Scope.AnchorGrid.DisplayName == name) > 1;
-            var ship = name.Length > 28 ? name.Substring(0, 27) + "…" : name;
             var shipNumber = sessions.OrderBy(other => other.Scope.Grids.Min(grid => grid.EntityId)).ToList().IndexOf(session) + 1;
             void Add(InventoryProjectionView view, string detail, bool network = false)
             {
@@ -714,8 +709,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                 {
                     Session = session,
                     View = view,
-                    Label = $"{(atHatch ? "[Accessed] " : accessed ? "[Local] " : "")}" +
-                            (duplicate ? $"Ship {shipNumber} · " : string.Empty) + $"{detail} — {ship}",
+                    Label = view == mechanical
+                        ? name + (duplicate ? $" · Ship {shipNumber}" : "") + (accessed ? " [Local]" : "")
+                        : detail + (atHatch ? " [Accessed]" : ""),
                     Tooltip = $"{name}\nConstruct ID: {gridId}\n{detail}: {members.Length} inventory blocks\n" +
                               (atHatch ? "Contains the accessed hatch.\n" : "") +
                               "Network grouping is not a transfer guarantee: access, sorters and tube sizes still apply.",
@@ -727,22 +723,20 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             var networks = ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.ConveyorComponents);
             if (networks.Count > 1)
                 foreach (var network in networks)
-                {
-                    var member = network.Projection.Roles.SelectMany(role => role.Members)
-                        .OrderByDescending(member => member.OwnerEntityId == interacted?.EntityId)
-                        .ThenBy(member => member.OwnerEntityId).First();
-                    var blockName = member.Owner is Sandbox.Game.Entities.Cube.MyTerminalBlock terminal
-                        ? terminal.CustomName.ToString() : member.Owner.DisplayNameText;
-                    Add(network, $"{network.Name} · {blockName}", network: true);
-                }
+                    Add(network, network.Name, network: true);
             if (Config.Current.ScopeMode == InventoryScopeMode.BlockGroups)
                 foreach (var group in ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.BlockGroups)
                              .Where(group => group.Id != mechanical.Id))
                     Add(group, "Group · " + group.Name);
         }
         choices = choices.OrderByDescending(choice => choice.AccessedConstruct)
-            .ThenBy(choice => choice.Session.Scope.Grids.Min(grid => grid.EntityId))
-            .ThenByDescending(choice => choice.AccessedNetwork).ToList();
+            .ThenBy(choice => choice.Session.Scope.Grids.Min(grid => grid.EntityId)).ToList();
+        foreach (var shipChoices in choices.GroupBy(choice => choice.Session))
+        {
+            var children = shipChoices.Skip(1).ToArray();
+            for (var index = 0; index < children.Length; index++)
+                children[index].Label = (index == children.Length - 1 ? "  └─ " : "  ├─ ") + children[index].Label;
+        }
         pane.ScopeChoices = choices;
         var selected = choices.FindIndex(choice => choice.View.Id == pane.SelectedScopeId);
         if (selected < 0)
@@ -759,7 +753,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             pane.ScopeChoicesSignature = signature;
             pane.ScopeSelector.ClearItems();
             for (var index = 0; index < choices.Count; index++)
-                pane.ScopeSelector.AddItem(index, choices[index].Label, toolTip: choices[index].Tooltip);
+                pane.ScopeSelector.AddTreeItem(index, choices[index].Label, toolTip: choices[index].Tooltip);
         }
         pane.ScopeSelector.SelectItemByKey(selected, sendEvent: false);
         var result = choices.ElementAtOrDefault(selected);

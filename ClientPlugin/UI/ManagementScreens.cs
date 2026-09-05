@@ -90,10 +90,10 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
     private readonly MechanicalInventorySession session;
     private readonly IReadOnlyList<InventoryRoleProjection> roles;
     private readonly ScopeProfile profile;
-    private MyGuiControlTable table;
-    private MyGuiControlCheckbox manual;
-    private MyGuiControlCheckbox reserved;
-    private MyGuiControlCheckbox noDestination;
+    private MultiSelectTable table;
+    private MyGuiControlIndeterminateCheckbox manual;
+    private MyGuiControlIndeterminateCheckbox reserved;
+    private MyGuiControlIndeterminateCheckbox noDestination;
     private MyGuiControlButton apply;
     private readonly Dictionary<(long Block, int Inventory), (InventoryManagementFlags Value, InventoryManagementFlags Mask)> pending = new();
     private bool loading;
@@ -111,8 +111,8 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
-        var selected = table?.SelectedRow?.UserData as InventoryDescriptor;
-        table = new MyGuiControlTable
+        var selected = new HashSet<(long, int)>(SelectedMembers.Select(member => (member.OwnerEntityId, member.InventoryIndex)));
+        table = new MultiSelectTable
         {
             Name = "InventoryMembers",
             Position = new Vector2(-0.36f, -0.31f),
@@ -125,7 +125,7 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
         table.SetColumnName(0, new StringBuilder("Block"));
         table.SetColumnName(1, new StringBuilder("Inv."));
         table.SetColumnName(2, new StringBuilder("State (* unsaved)"));
-        table.SetToolTip("Select a row to edit its exclusions. Changes stay buffered when selecting another row. Apply saves all pending rows; Close or Escape discards them.");
+        table.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Checkbox edits affect all selected rows. Changes stay buffered until Apply; Close or Escape discards them."));
         foreach (var member in roles.SelectMany(role => role.Members)
                      .GroupBy(member => (member.OwnerEntityId, member.InventoryIndex))
                      .Select(group => group.First())
@@ -136,42 +136,41 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
             row.AddCell(new MyGuiControlTable.Cell(member.Owner.DisplayNameText,
                 toolTip: $"{member.Owner.CubeGrid.DisplayName}\nBlock ID: {member.OwnerEntityId}\nSelect this row to edit its buffered exclusions."));
             row.AddCell(new MyGuiControlTable.Cell((member.InventoryIndex + 1).ToString(CultureInfo.InvariantCulture),
-                toolTip: "Inventory number within this block. Reserved and cargo-destination settings affect only this inventory; Manual affects the whole block."));
+                toolTip: "Inventory number within this block. Reserved and Source Only affect only this inventory; Unmanaged affects the whole block."));
             row.AddCell(new MyGuiControlTable.Cell(
-                Flags(member).ToString(), toolTip: "Pending exclusions for this row. An asterisk means Apply is still required."));
+                UnifiedStorageHelp.ManagementState(Flags(member)), toolTip: "Pending exclusions for this row. Managed means no exclusions. An asterisk means Apply is still required."));
             table.Add(row);
         }
-        table.ItemSelected += (_, _) => LoadSelected();
+        table.SelectionChanged += LoadSelected;
         Controls.Add(table);
 
-        manual = AddCheckbox("Manual block", new Vector2(-0.34f, 0.27f));
-        reserved = AddCheckbox("Reserved / not counted", new Vector2(-0.08f, 0.27f));
-        noDestination = AddCheckbox("Not a cargo destination", new Vector2(0.2f, 0.27f));
-        manual.IsCheckedChanged += _ => Stage(InventoryManagementFlags.ManualBlock, manual.IsChecked);
-        reserved.IsCheckedChanged += _ => Stage(InventoryManagementFlags.ReservedInventory, reserved.IsChecked);
-        noDestination.IsCheckedChanged += _ => Stage(InventoryManagementFlags.NoUnifiedCargoDestination, noDestination.IsChecked);
+        manual = AddCheckbox("Unmanaged", new Vector2(-0.34f, 0.27f));
+        reserved = AddCheckbox("Reserved", new Vector2(-0.08f, 0.27f));
+        noDestination = AddCheckbox("Source Only", new Vector2(0.2f, 0.27f));
+        manual.IsCheckedChanged += _ => Stage(InventoryManagementFlags.ManualBlock, manual.State == CheckStateEnum.Checked);
+        reserved.IsCheckedChanged += _ => Stage(InventoryManagementFlags.ReservedInventory, reserved.State == CheckStateEnum.Checked);
+        noDestination.IsCheckedChanged += _ => Stage(InventoryManagementFlags.NoUnifiedCargoDestination, noDestination.State == CheckStateEnum.Checked);
         apply = Button("Apply", new Vector2(-0.1f, 0.34f), Apply);
         Controls.Add(apply);
         Controls.Add(Button("Close", new Vector2(0.1f, 0.34f), () => CloseScreen()));
         if (table.RowsCount > 0)
         {
-            table.SetSelectedRow(0);
-            for (var index = 0; selected != null && index < table.RowsCount; index++)
-                if (table.GetRow(index).UserData is InventoryDescriptor member &&
-                    member.OwnerEntityId == selected.OwnerEntityId && member.InventoryIndex == selected.InventoryIndex)
-                    table.SetSelectedRow(index);
+            table.RestoreSelection(Enumerable.Range(0, table.RowsCount).Where(index =>
+                table.GetRow(index).UserData is InventoryDescriptor member && selected.Contains((member.OwnerEntityId, member.InventoryIndex))));
+            if (selected.Count == 0) table.SetSelectedRow(0);
         }
         LoadSelected();
         RefreshDraftRows();
     }
 
-    private MyGuiControlCheckbox AddCheckbox(string text, Vector2 position)
+    private MyGuiControlIndeterminateCheckbox AddCheckbox(string text, Vector2 position)
     {
-        var checkbox = new MyGuiControlCheckbox(position)
+        var checkbox = new MyGuiControlIndeterminateCheckbox(position)
         {
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
         };
-        checkbox.SetToolTip(UnifiedStorageHelp.Field(text));
+        checkbox.SetToolTip(UnifiedStorageHelp.Wrap(UnifiedStorageHelp.Field(text) +
+            " Applies to all selected rows. A dash means mixed values; click to clear all, then click again to enable all. Apply saves the batch."));
         checkbox.ShowTooltipWhenDisabled = true;
         Controls.Add(checkbox);
         Controls.Add(Label(text, position + new Vector2(0.035f, 0f)));
@@ -180,18 +179,23 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
 
     private void LoadSelected()
     {
-        var member = table.SelectedRow?.UserData as InventoryDescriptor;
-        manual.Enabled = reserved.Enabled = member != null;
-        noDestination.Enabled = member?.Section.Kind == InventorySectionKind.UnifiedCargo;
-        if (member == null)
-            return;
+        var members = SelectedMembers.ToArray();
+        manual.Enabled = reserved.Enabled = members.Length > 0;
+        var cargo = members.Where(member => member.Section.Kind == InventorySectionKind.UnifiedCargo).ToArray();
+        noDestination.Enabled = cargo.Length > 0;
         loading = true;
-        var flags = Flags(member);
-        manual.IsChecked = (flags & InventoryManagementFlags.ManualBlock) != 0;
-        reserved.IsChecked = (flags & InventoryManagementFlags.ReservedInventory) != 0;
-        noDestination.IsChecked = (flags & InventoryManagementFlags.NoUnifiedCargoDestination) != 0;
+        CheckStateEnum State(InventoryDescriptor[] rows, InventoryManagementFlags flag) =>
+            rows.Length == 0 || rows.All(member => (Flags(member) & flag) == 0) ? CheckStateEnum.Unchecked :
+            rows.All(member => (Flags(member) & flag) != 0) ? CheckStateEnum.Checked : CheckStateEnum.Indeterminate;
+        manual.State = State(members, InventoryManagementFlags.ManualBlock);
+        reserved.State = State(members, InventoryManagementFlags.ReservedInventory);
+        noDestination.State = State(cargo, InventoryManagementFlags.NoUnifiedCargoDestination);
+        table.SetColumnName(0, new StringBuilder($"Block ({members.Length} selected)"));
         loading = false;
     }
+
+    private IEnumerable<InventoryDescriptor> SelectedMembers => table?.SelectedRows.Select(row => (InventoryDescriptor)row.UserData)
+        ?? Enumerable.Empty<InventoryDescriptor>();
 
     private void Apply()
     {
@@ -219,11 +223,13 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
 
     private void Stage(InventoryManagementFlags flag, bool enabled)
     {
-        if (loading || table.SelectedRow?.UserData is not InventoryDescriptor member)
+        if (loading)
             return;
+        var selected = SelectedMembers.ToArray();
+        var owners = new HashSet<long>(selected.Select(member => member.OwnerEntityId));
         var members = flag == InventoryManagementFlags.ManualBlock
-            ? session.Scope.Inventories.Where(candidate => candidate.OwnerEntityId == member.OwnerEntityId)
-            : new[] { member };
+            ? session.Scope.Inventories.Where(candidate => owners.Contains(candidate.OwnerEntityId))
+            : selected.Where(member => flag != InventoryManagementFlags.NoUnifiedCargoDestination || member.Section.Kind == InventorySectionKind.UnifiedCargo);
         foreach (var descriptor in members)
         {
             var key = (descriptor.OwnerEntityId, descriptor.InventoryIndex);
@@ -237,6 +243,7 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
             else pending[key] = (value, mask);
         }
         RefreshDraftRows();
+        LoadSelected();
     }
 
     private void RefreshDraftRows()
@@ -247,9 +254,10 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
             var member = (InventoryDescriptor)row.UserData;
             var edited = pending.ContainsKey((member.OwnerEntityId, member.InventoryIndex));
             var cell = row.GetCell(2);
-            cell.Text.Clear().Append(edited ? "* " : string.Empty).Append(Flags(member));
+            var state = UnifiedStorageHelp.ManagementState(Flags(member));
+            cell.Text.Clear().Append(edited ? "* " : string.Empty).Append(state);
             cell.ToolTip.ToolTips.Clear();
-            cell.ToolTip.AddToolTip(Flags(member) + (edited
+            cell.ToolTip.AddToolTip(state + (edited
                 ? "\nUnsaved: Apply saves this together with all other edited rows."
                 : "\nSaved exclusions. Select this row to stage changes."));
         }
@@ -264,7 +272,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
     private readonly MechanicalInventorySession session;
     private readonly ScopeProfile profile;
     private readonly Func<InventoryDescriptor, InventoryManagementFlags> getFlags;
-    private MyGuiControlTable table;
+    private MultiSelectTable table;
     private MyGuiControlTextbox target;
     private MyGuiControlCombobox blueprint;
     private MyGuiControlCheckbox maintain;
@@ -287,7 +295,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
-        var selectedComponent = (table?.SelectedRow?.UserData as ComponentTargetStatus)?.ComponentId;
+        var selectedComponents = SelectedTargets.Select(status => status.ComponentId).ToArray();
         statuses = ComponentTargetEngine.Evaluate(session.Scope, profile, getFlags);
         var search = new MyGuiControlSearchBox(
             new Vector2(-0.36f, -0.32f),
@@ -304,7 +312,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             PopulateTable();
         };
         Controls.Add(search);
-        table = new MyGuiControlTable
+        table = new MultiSelectTable
         {
             Name = "ComponentTargets",
             Position = new Vector2(-0.36f, -0.27f),
@@ -316,10 +324,10 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         table.SetCustomColumnWidths(new[] { 0.40f, 0.12f, 0.12f, 0.12f, 0.24f });
         foreach (var (index, name) in new[] { "Component", "Stock", "Queued", "Target", "Status" }.Select((name, index) => (index, name)))
             table.SetColumnName(index, new StringBuilder(name));
-        table.ItemSelected += (_, _) => LoadSelected();
+        table.SelectionChanged += LoadSelected;
         Controls.Add(table);
 
-        table.SetToolTip("Stock and queued output count toward saved targets. Select a component to edit its target and supported recipe; Save target affects the selected row only.");
+        table.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Save target sets the entered quantity on all selected components. Recipe editing requires one row; batch edits preserve each component's recipe. Craft deficits uses all saved targets."));
 
         Controls.Add(Label("Target", new Vector2(-0.36f, 0.21f)));
         target = new MyGuiControlTextbox(new Vector2(-0.28f, 0.21f), "0", 18, type: MyGuiControlTextboxType.DigitsOnly)
@@ -363,50 +371,56 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         Controls.Add(saveTarget);
         Controls.Add(Button("Craft deficits", new Vector2(0, 0.35f), Craft));
         Controls.Add(Button("Close", new Vector2(0.24f, 0.35f), () => CloseScreen()));
-        PopulateTable(selectedComponent);
+        PopulateTable(selectedComponents);
     }
+
+    private IEnumerable<ComponentTargetStatus> SelectedTargets => table?.SelectedRows.Select(row => (ComponentTargetStatus)row.UserData)
+        ?? Enumerable.Empty<ComponentTargetStatus>();
 
     private void LoadSelected()
     {
-        var status = table.SelectedRow?.UserData as ComponentTargetStatus;
-        target.Enabled = blueprint.Enabled = saveTarget.Enabled = status != null;
+        var selected = SelectedTargets.ToArray();
+        var status = selected.FirstOrDefault();
+        target.Enabled = saveTarget.Enabled = status != null;
+        blueprint.Enabled = selected.Length == 1;
         blueprint.ClearItems();
         if (status == null)
         {
             target.Text = "0";
             return;
         }
-        target.Text = ((decimal)status.Target).ToString("0", CultureInfo.InvariantCulture);
+        target.Text = selected.All(item => item.Target == status.Target)
+            ? ((decimal)status.Target).ToString("0", CultureInfo.InvariantCulture) : "";
+        target.SetToolTip($"Quantity for {selected.Length} selected components. Blank with different values means mixed; enter a number to replace all selected targets. Zero disables them.");
+        saveTarget.SetToolTip($"Save the entered quantity for {selected.Length} selected components. With multiple rows selected, each recipe is preserved.");
+        blueprint.SetToolTip(selected.Length == 1 ? UnifiedStorageHelp.Field("Blueprint") : "Multiple components selected: recipes remain unchanged. Select one component to edit its recipe.");
         for (var index = 0; index < status.BlueprintChoices.Count; index++)
             blueprint.AddItem(index, status.BlueprintChoices[index].DisplayNameText ??
                 status.BlueprintChoices[index].Id.SubtypeName);
         if (status.Blueprint != null)
         {
-            var selected = -1;
+            var selectedBlueprint = -1;
             for (var index = 0; index < status.BlueprintChoices.Count; index++)
                 if (ReferenceEquals(status.BlueprintChoices[index], status.Blueprint))
                 {
-                    selected = index;
+                    selectedBlueprint = index;
                     break;
                 }
-            if (selected >= 0)
-                blueprint.SelectItemByKey(selected, sendEvent: false);
+            if (selectedBlueprint >= 0)
+                blueprint.SelectItemByKey(selectedBlueprint, sendEvent: false);
         }
     }
 
-    private void PopulateTable(MyDefinitionId? selectedComponent = null)
+    private void PopulateTable(IEnumerable<MyDefinitionId> selectedComponents = null)
     {
         if (table == null)
             return;
-        selectedComponent ??= (table.SelectedRow?.UserData as ComponentTargetStatus)?.ComponentId;
+        var selected = (selectedComponents ?? SelectedTargets.Select(status => status.ComponentId)).ToArray();
         table.Clear();
-        var selectedIndex = 0;
         foreach (var status in statuses.Where(status => string.IsNullOrWhiteSpace(searchText) ||
                      DisplayName(status.ComponentId).IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0 ||
                      status.ComponentId.ToString().IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0))
         {
-            if (status.ComponentId == selectedComponent)
-                selectedIndex = table.RowsCount;
             var row = new MyGuiControlTable.Row(status);
             row.AddCell(new MyGuiControlTable.Cell(
                 "   " + DisplayName(status.ComponentId),
@@ -420,7 +434,8 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         }
         if (table.RowsCount > 0)
         {
-            table.SetSelectedRow(selectedIndex);
+            table.RestoreSelection(Enumerable.Range(0, table.RowsCount).Where(index => selected.Contains(((ComponentTargetStatus)table.GetRow(index).UserData).ComponentId)));
+            if (selected.Length == 0) table.SetSelectedRow(0);
             table.ScrollToSelection();
         }
         // The first selection after clearing the table does not raise ItemSelected.
@@ -456,8 +471,14 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
 
     private void SaveSelected()
     {
-        if (table.SelectedRow?.UserData is not ComponentTargetStatus status)
+        var selected = SelectedTargets.ToArray();
+        if (selected.Length == 0)
             return;
+        if (selected.Length > 1 && string.IsNullOrWhiteSpace(target.Text))
+        {
+            Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Enter a quantity for the selected components. Use 0 to disable all selected goals.", 5000);
+            return;
+        }
         var text = string.IsNullOrWhiteSpace(target.Text) ? "0" : target.Text;
         if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) ||
             amount < 0 || amount > 1000000000000m || amount != decimal.Truncate(amount))
@@ -465,18 +486,24 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Target must be a whole number from 0 to 1,000,000,000,000. Blank disables it.", 5000);
             return;
         }
-        var record = profile.ComponentTargets.FirstOrDefault(candidate =>
-            string.Equals(candidate.DefinitionId, status.ComponentId.ToString(), StringComparison.Ordinal));
-        if (record == null)
+        foreach (var status in selected)
         {
-            record = new ComponentTargetRecord { DefinitionId = status.ComponentId.ToString() };
-            profile.ComponentTargets.Add(record);
+            var record = profile.ComponentTargets.FirstOrDefault(candidate =>
+                string.Equals(candidate.DefinitionId, status.ComponentId.ToString(), StringComparison.Ordinal));
+            if (record == null)
+            {
+                record = new ComponentTargetRecord { DefinitionId = status.ComponentId.ToString() };
+                profile.ComponentTargets.Add(record);
+            }
+            record.Amount = Math.Max(0, decimal.Truncate(amount));
+            if (selected.Length == 1)
+            {
+                var blueprintIndex = blueprint.GetSelectedKey();
+                record.BlueprintDefinitionId = blueprintIndex >= 0 && blueprintIndex < status.BlueprintChoices.Count
+                    ? status.BlueprintChoices[(int)blueprintIndex].Id.ToString()
+                    : null;
+            }
         }
-        record.Amount = Math.Max(0, decimal.Truncate(amount));
-        var blueprintIndex = blueprint.GetSelectedKey();
-        record.BlueprintDefinitionId = blueprintIndex >= 0 && blueprintIndex < status.BlueprintChoices.Count
-            ? status.BlueprintChoices[(int)blueprintIndex].Id.ToString()
-            : null;
         SaveGlobalSettings();
         Plugin.Instance.Profiles.Save();
         RecreateControls(false);
@@ -533,7 +560,7 @@ internal sealed class LoadoutScreen : UnifiedStorageScreen
     private readonly string groupId;
     private readonly Func<InventoryDescriptor, InventoryManagementFlags> getFlags;
     private readonly Action<TransferPlan> enqueue;
-    private MyGuiControlTable rules;
+    private MultiSelectTable rules;
     private int nextStatusRefresh;
 
     public LoadoutScreen(MechanicalInventorySession session, InventoryProjection projection, ScopeProfile profile,
@@ -546,7 +573,8 @@ internal sealed class LoadoutScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
-        rules = new MyGuiControlTable
+        var selected = SelectedRules.ToArray();
+        rules = new MultiSelectTable
         {
             Name = "LoadoutRules", Position = new Vector2(-0.36f, -0.31f), Size = new Vector2(0.72f, 0.4f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP, ColumnsCount = 5, VisibleRowsCount = 12
@@ -566,15 +594,20 @@ internal sealed class LoadoutScreen : UnifiedStorageScreen
             rules.Add(row);
         }
         Controls.Add(rules);
-        rules.SetToolTip("Select a saved loadout rule to edit or delete. State explains whether the rule can run; Local indicates automatic client maintenance.");
+        rules.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Delete affects all selected rules. Edit requires one row. Apply loadouts still runs all rules in this scope."));
+        rules.RestoreSelection(Enumerable.Range(0, rules.RowsCount).Where(index => selected.Contains((LoadoutRecord)rules.GetRow(index).UserData)));
         Controls.Add(Label("Targets, supply and excess returns use configurable inventory groups.", new Vector2(-0.36f, 0.16f)));
         Controls.Add(Label("Overlapping target rules are paused. Missing groups never broaden scope.", new Vector2(-0.36f, 0.20f)));
         Controls.Add(Button("New rule", new Vector2(-0.24f, 0.27f), () => Edit(null)));
-        Controls.Add(Button("Edit selected", new Vector2(0, 0.27f), () => { if (Selected != null) Edit(Selected); }));
+        var edit = Button("Edit selected", new Vector2(0, 0.27f), () => { if (SelectedRules.Count() == 1) Edit(SelectedRules.Single()); });
+        edit.SetToolTip("Edit one selected loadout. Select exactly one row to enable this action.");
+        Controls.Add(edit);
+        rules.SelectionChanged += () => edit.Enabled = SelectedRules.Count() == 1;
+        edit.Enabled = SelectedRules.Count() == 1;
         Controls.Add(Button("Delete selected", new Vector2(0.24f, 0.27f), () =>
         {
-            if (Selected == null) return;
-            profile.Loadouts.Remove(Selected); Save();
+            foreach (var rule in SelectedRules.ToArray()) profile.Loadouts.Remove(rule);
+            Save();
         }));
         Controls.Add(Button("Apply loadouts", new Vector2(-0.12f, 0.34f), () =>
         {
@@ -602,12 +635,14 @@ internal sealed class LoadoutScreen : UnifiedStorageScreen
         return result;
     }
 
-    private LoadoutRecord Selected => rules.SelectedRow?.UserData as LoadoutRecord;
+    private IEnumerable<LoadoutRecord> SelectedRules => rules?.SelectedRows.Select(row => (LoadoutRecord)row.UserData)
+        ?? Enumerable.Empty<LoadoutRecord>();
     private void Edit(LoadoutRecord record) => MyGuiSandbox.AddScreen(new LoadoutRuleEditor(session, profile, record, groupId, value =>
     {
         var index = record == null ? -1 : profile.Loadouts.IndexOf(record);
         if (index < 0) profile.Loadouts.Add(value); else profile.Loadouts[index] = value;
         Save();
+        rules.RestoreSelection(Enumerable.Range(0, rules.RowsCount).Where(row => ReferenceEquals(rules.GetRow(row).UserData, value)));
     }));
     private void Save()
     {
@@ -721,7 +756,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
     private readonly ScopeProfile profile;
     private readonly Func<InventoryDescriptor, InventoryManagementFlags> getFlags;
     private readonly Action sortNow;
-    private MyGuiControlTable table;
+    private MultiSelectTable table;
     private MyGuiControlCheckbox automatic;
     private MyGuiControlCheckbox autoSort;
     private RefineryPriorityModel model;
@@ -741,7 +776,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
 
     protected override void CreateControls()
     {
-        var selectedInput = table?.SelectedRow?.UserData as MyDefinitionId?;
+        var selectedInputs = SelectedInputs.ToArray();
         model = RefineryPriorityEngine.Build(session.Scope, profile, getFlags);
         if (!profile.RefineryPriority.Automatic)
         {
@@ -755,7 +790,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
             if (changed)
                 Plugin.Instance.Profiles.Save();
         }
-        table = new MyGuiControlTable
+        table = new MultiSelectTable
         {
             Name = "RefineryInputs",
             Position = new Vector2(-0.36f, -0.31f),
@@ -768,7 +803,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
         table.SetColumnName(0, new StringBuilder("#"));
         table.SetColumnName(1, new StringBuilder("Input"));
         table.SetColumnName(2, new StringBuilder("Accepting"));
-        table.SetToolTip("Higher rows are processed first. P marks a pinned priority; Accepting counts refineries that support the ore. Priority changes save immediately; Sort now reorders physical inputs.");
+        table.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Higher rows are processed first. Pin and move affect all selected ores and save immediately. Sort now reorders physical inputs."));
         for (var index = 0; index < model.OrderedInputs.Count; index++)
         {
             var id = model.OrderedInputs[index];
@@ -786,8 +821,8 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
         Controls.Add(table);
         if (table.RowsCount > 0)
         {
-            var selectedIndex = model.OrderedInputs.ToList().FindIndex(id => selectedInput.HasValue && id == selectedInput.Value);
-            table.SetSelectedRow(Math.Max(0, selectedIndex));
+            table.RestoreSelection(Enumerable.Range(0, table.RowsCount).Where(index => selectedInputs.Contains((MyDefinitionId)table.GetRow(index).UserData)));
+            if (selectedInputs.Length == 0) table.SetSelectedRow(0);
         }
         automatic = Checkbox("Automatic priority", new Vector2(-0.34f, 0.27f), profile.RefineryPriority.Automatic,
             value => profile.RefineryPriority.Automatic = value);
@@ -820,31 +855,32 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
 
     private void TogglePin()
     {
-        if (table.SelectedRow?.UserData is not MyDefinitionId id)
-            return;
-        var value = id.ToString();
+        var selected = SelectedInputs.Select(id => id.ToString()).ToArray();
+        if (selected.Length == 0) return;
         var list = profile.RefineryPriority.PinnedDefinitionIds;
-        if (!list.Remove(value))
-            list.Add(value);
+        var pin = selected.Any(value => !list.Contains(value));
+        foreach (var value in selected)
+            if (pin) { if (!list.Contains(value)) list.Add(value); }
+            else list.Remove(value);
         Plugin.Instance.Profiles.Save();
         RecreateControls(false);
     }
 
     private void Move(int direction)
     {
-        if (table.SelectedRow?.UserData is not MyDefinitionId id)
-            return;
+        var selected = SelectedInputs.Select(id => id.ToString()).ToArray();
+        if (selected.Length == 0) return;
         var list = profile.RefineryPriority.Automatic
             ? profile.RefineryPriority.PinnedDefinitionIds
             : profile.RefineryPriority.ManualDefinitionIds;
-        if (!list.Contains(id.ToString()))
-            list.Add(id.ToString());
-        var index = list.IndexOf(id.ToString());
-        var target = Math.Max(0, Math.Min(list.Count - 1, index + direction));
-        if (target == index)
-            return;
-        (list[index], list[target]) = (list[target], list[index]);
+        foreach (var value in selected)
+            if (!list.Contains(value)) list.Add(value);
+        ListSelection.Move(list, selected, direction);
         Plugin.Instance.Profiles.Save();
         RecreateControls(false);
     }
+
+    private IEnumerable<MyDefinitionId> SelectedInputs => table?.SelectedRowsIndexes.OrderBy(index => index)
+        .Where(index => index >= 0 && index < table.RowsCount).Select(index => (MyDefinitionId)table.GetRow(index).UserData)
+        ?? Enumerable.Empty<MyDefinitionId>();
 }

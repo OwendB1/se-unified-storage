@@ -1,13 +1,24 @@
 using System.Text;
+using System.Collections.Generic;
+using ClientPlugin.Profiles;
 
 namespace ClientPlugin.UI;
 
 internal static class UnifiedStorageHelp
 {
+    public static string ManagementState(InventoryManagementFlags flags)
+    {
+        var names = new List<string>();
+        if ((flags & InventoryManagementFlags.ManualBlock) != 0) names.Add("Unmanaged");
+        if ((flags & InventoryManagementFlags.ReservedInventory) != 0) names.Add("Reserved");
+        if ((flags & InventoryManagementFlags.NoUnifiedCargoDestination) != 0) names.Add("Source Only");
+        return names.Count == 0 ? "Managed" : string.Join(", ", names);
+    }
+
     public static string Screen(string caption) => Wrap(caption switch
     {
-        "Unified Storage members" => "Edit inventory exclusions. Changes are buffered across rows until Apply. An asterisk marks unsaved edits; Close or Escape discards them. Manual applies to the entire block.",
-        "Component targets" => "Set ship-wide component stock goals and choose supported assembler recipes. Save target saves the selected component; Craft deficits uses saved targets. Stock and queued output both count toward goals.",
+        "Unified Storage members" => "Ctrl-click toggles rows; Shift-click selects a range. Checkbox changes affect the selection and stay buffered until Apply. A dash means mixed values; an asterisk marks unsaved edits. Close discards drafts. Unmanaged covers each selected block.",
+        "Component targets" => "Set ship-wide component stock goals. Ctrl/Shift select multiple components; Save target sets their common quantity while preserving individual recipes. Recipe editing requires one row. Craft deficits uses all saved targets.",
         "Loadouts" => "Define desired contents for inventory groups. Rules choose their own supply, return group and distribution policy. Editing rules saves settings; Apply loadouts performs transfers.",
         "Edit loadout" => "Edit one loadout rule. Apply saves it; Cancel discards this editor's changes. Maintained rules can then run automatically; otherwise use Apply loadouts.",
         "Refinery ore priority" => "Order refinery input ores using definition-derived scarcity or a manual list. Changes save immediately. Sorting moves input stacks within refineries; it does not pull more ore or drain outputs.",
@@ -35,25 +46,25 @@ internal static class UnifiedStorageHelp
         ("Edit loadout", "Apply") => "Save this rule and close. If Maintain locally is enabled, client maintenance may act on it; otherwise run Apply loadouts explicitly.",
         ("Edit inventory group" or "Edit loadout", "Close" or "Cancel") => "Discard unsaved edits in this editor and close. Previously saved settings remain unchanged.",
         ("Shared profile tools", "Delete selected") => "After confirmation, delete the selected owned server-profile binding. The server creates a recovery archive; inventory contents are not deleted.",
-        ("Inventory groups", "Move up") => "Move the selected group earlier in the inventory layout and save immediately. This does not reorder physical items.",
-        ("Inventory groups", "Move down") => "Move the selected group later in the inventory layout and save immediately. This does not reorder physical items.",
-        ("Refinery ore priority", "Move up") => "Raise the selected ore in the manual or pinned list and save immediately. In automatic mode an unpinned ore is added to the pinned list.",
-        ("Refinery ore priority", "Move down") => "Lower the selected ore in the manual or pinned list and save immediately. In automatic mode an unpinned ore is added to the pinned list.",
+        ("Inventory groups", "Move up") => "Move selected groups earlier, keeping their relative order, and save immediately. Physical items are unchanged.",
+        ("Inventory groups", "Move down") => "Move selected groups later, keeping their relative order, and save immediately. Physical items are unchanged.",
+        ("Refinery ore priority", "Move up") => "Raise selected ores in the manual or pinned list, keeping their relative order, and save. In automatic mode unpinned selected ores are first pinned.",
+        ("Refinery ore priority", "Move down") => "Lower selected ores in the manual or pinned list, keeping their relative order, and save. In automatic mode unpinned selected ores are first pinned.",
         ("Server automation ownership", "Sort now") => "Request a one-time server input sort using the published refinery priorities. Does not apply the ownership checkboxes.",
         (_, "Close") => "Close this window. Settings already saved and actions already submitted are not undone.",
-        (_, "Save target") => "Save the selected component's quantity and recipe, plus maintenance settings. Save before selecting another component. Zero disables this component goal.",
+        (_, "Save target") => "Save the entered quantity on every selected component, plus maintenance settings. Recipe changes apply only with one row selected. Zero disables selected goals. Save before changing selection.",
         (_, "Craft deficits") => "Queue missing output for all saved component targets, accounting for current stock and existing assembler queues. Save an edited component target first; this action only saves the global maintenance settings.",
         (_, "New rule") => "Open an editor for a new loadout rule. Nothing is saved until Apply in the editor.",
         (_, "Edit selected") => "Open the selected loadout rule. Apply saves its edits; Cancel leaves the saved rule unchanged.",
-        (_, "Delete selected") => "Delete the selected loadout rule and save immediately. Does not remove inventory items or undo transfers already submitted.",
-        (_, "Apply loadouts") => "Immediately plan transfers for the loadout rules shown here, using each rule's supply, return group and policy. Respects exclusions, capacity and conveyor access.",
+        (_, "Delete selected") => "Delete all selected loadout rules and save immediately. Does not remove inventory items or undo transfers already submitted.",
+        (_, "Apply loadouts") => "Immediately plan transfers for all loadout rules in this scope, not just selected rows, using each rule's supply, return group and policy. Respects exclusions, capacity and conveyor access.",
         (_, "New") => "Open an editor for a new inventory group. Apply saves the group; Cancel discards it.",
         (_, "Edit") => "Edit the selected group's live selector and item filters. Apply saves; Cancel discards the editor's changes.",
-        (_, "Duplicate") => "Create and immediately save a copy of the selected group with its own identity. Does not copy or move inventory items.",
-        (_, "Delete") => "Delete the selected group and save immediately. Loadout rules referencing it remain visible but paused; they are not redirected to other inventories.",
+        (_, "Duplicate") => "Create and immediately save a separate copy of every selected group. Does not copy or move inventory items.",
+        (_, "Delete") => "Delete all selected groups and save immediately. Referencing loadout rules remain visible but paused; they are not redirected to other inventories.",
         (_, "Restore defaults") => "After confirmation, reset built-in groups and restore missing presets. Custom groups and loadout rules are kept.",
         (_, "Shared profile") => "Open optional server-profile exchange. Fetch and inspect before explicitly publishing or adopting settings.",
-        (_, "Pin / unpin") => "Add or remove the selected ore from the pinned list and save immediately. Pinned ores take priority over automatically ordered ores.",
+        (_, "Pin / unpin") => "Pin all selected ores if any are unpinned; otherwise unpin all selected ores. Saves immediately. Pinned ores take priority over automatically ordered ores.",
         (_, "Sort now") => "Immediately sort refinery input stacks using saved ore priorities. Keeps ore quantities unchanged; does not fill or drain refineries.",
         (_, "Group loadouts") => "Configure item targets, supply and excess returns for this inventory group.",
         (_, "Ship ore priority") => "Open ship-wide refinery ore ordering. Priority changes save immediately; Sort now reorders actual inputs.",
@@ -79,9 +90,9 @@ internal static class UnifiedStorageHelp
 
     public static string Field(string label) => Wrap(label switch
     {
-        "Manual block" => "Stage exclusion of every inventory on this block from plugin bulk actions. Apply saves this together with other edited rows. Native conveyor pulls and explicit vanilla transfers are unaffected.",
-        "Reserved / not counted" => "Stage a reservation for this inventory: plugin bulk actions skip it and planning does not count its stock as available. It stays visible. Apply is required.",
-        "Not a cargo destination" => "Stage exclusion from deposits into general cargo. Does not reserve existing contents or prevent withdrawals. Applies only to cargo inventories; Apply is required.",
+        "Unmanaged" => "Stage exclusion of every inventory on this block from plugin bulk actions. Apply saves this together with other edited rows. Native conveyor pulls and explicit vanilla transfers are unaffected.",
+        "Reserved" => "Stage a reservation for this inventory: plugin bulk actions skip it and planning does not count its stock as available. It stays visible. Apply is required.",
+        "Source Only" => "Stage exclusion from deposits into general cargo. Does not reserve existing contents or prevent withdrawals. Applies only to cargo inventories; Apply is required. Other exclusions can still prevent using it as a source.",
         "Display name" => "Name of this local inventory view. Renaming a view does not rename blocks or terminal block groups.",
         "Select blocks by" => "Choose a live selector: family, type, definition, terminal-group name, exact block or supported recipe output. Names match new group members; exact-block selectors do not.",
         "Selection (resolved on this ship)" => "Choose the selector value to save. A missing value stays unresolved rather than silently selecting other blocks.",

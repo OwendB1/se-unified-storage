@@ -33,7 +33,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
     private const float OwnerHeaderHeight = 0.045f;
     private const float SectionHeaderHeight = 0.031f;
     private const float ExpandedSectionHeaderHeight = 0.058f;
-    private const float SeparatorSpacing = 0.008f;
+    private static readonly float SectionGap = 12f / MyGuiConstants.GUI_OPTIMAL_SIZE.Y;
     private const float RoleHeaderHeight = 0.025f;
     private const float FooterHeight = 0.033f;
     private readonly List<MyGuiControlGrid> grids = new();
@@ -62,10 +62,6 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         Action loadouts)
         : base(
             size: new Vector2(0.392f, 0.1f),
-            backgroundTexture: new MyGuiCompositeTexture
-            {
-                Center = new MyGuiSizedTexture { Texture = "Textures\\GUI\\Controls\\item_dark.dds" }
-            },
             isActiveControl: false,
             canHaveFocus: true)
     {
@@ -73,10 +69,6 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         ViewId = viewId ?? throw new ArgumentNullException(nameof(viewId));
         Projection = projection ?? throw new ArgumentNullException(nameof(projection));
         OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP;
-        BorderHighlightEnabled = true;
-        BorderColor = MyGuiConstants.HIGHLIGHT_BACKGROUND_COLOR;
-        BorderSize = 2;
-        BorderMargin = new Vector2(0.002f);
         CanFocusChildren = true;
         CanPlaySoundOnMouseOver = false;
 
@@ -84,7 +76,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         memberLayout = MemberLayout(visibleRoles, getFlags);
         var sections = visibleRoles.GroupBy(entry => entry.Role.Section).ToArray();
         var height = Padding * 2 + OwnerHeaderHeight + FooterHeight +
-                     sections.Sum(section => GetSectionHeaderHeight(section.Key) + SeparatorSpacing * 2) +
+                     sections.Sum(section => GetSectionHeaderHeight(section.Key) + Padding + SectionGap) +
                      visibleRoles.Sum(entry => RoleHeaderHeight + GridHeight(entry.Stacks.Count) + Padding);
         Size = new Vector2(0.392f, Math.Max(0.12f, height));
         var topLeft = Size * -0.5f + new Vector2(Padding, Padding);
@@ -115,13 +107,23 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         Elements.Add(MakeButton("Loadouts", topLeft.X + 0.28f, topLeft.Y, 0.094f,
             _ => loadouts(), "Set item targets, supply and excess-return groups. Rule edits save settings; Apply loadouts starts transfers."));
 
-        var separators = new MyGuiControlSeparatorList();
-        Elements.Add(separators);
         var y = topLeft.Y + OwnerHeaderHeight;
         foreach (var section in sections)
         {
-            separators.AddHorizontal(new Vector2(topLeft.X, y + SeparatorSpacing * 0.5f), Size.X - Padding * 2);
-            y += SeparatorSpacing;
+            // Keep backgrounds passive and behind the existing controls so the
+            // native-style split does not change focus or drag/drop ownership.
+            Elements.Add(new MyGuiControlPanel(
+                position: new Vector2(-Size.X * 0.5f, y),
+                size: new Vector2(Size.X, Padding + GetSectionHeaderHeight(section.Key) +
+                    section.Sum(entry => RoleHeaderHeight + GridHeight(entry.Stacks.Count) + Padding)),
+                texture: "Textures\\GUI\\Controls\\item_dark.dds",
+                originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP)
+            {
+                Name = "UnifiedSectionBackground",
+                IsHitTestVisible = false,
+                CanPlaySoundOnMouseOver = false
+            });
+            y += Padding;
             var sectionRoles = section.Select(entry => entry.Role).ToArray();
             sectionBindings.Add(sectionRoles);
             var members = sectionRoles.SelectMany(role => role.Members).Select(member => member.OwnerEntityId).Distinct().Count();
@@ -140,7 +142,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 Size = new Vector2(0.14f, 0.025f)
             });
             Elements.Add(MakeButton("Manage", topLeft.X + 0.148f, y, 0.064f,
-                _ => manage?.Invoke(sectionRoles), "Edit Manual, Reserved and cargo-destination exclusions for these members. Edits are buffered across rows until Apply saves them all."));
+                _ => manage?.Invoke(sectionRoles), "Edit Unmanaged, Reserved and Source Only settings for these members. Edits are buffered across rows until Apply saves them all."));
             var rebalanceButton = MakeButton("Rebalance", topLeft.X + 0.216f, y, 0.086f,
                 _ => rebalance?.Invoke(sectionRoles), "Immediately redistribute items among eligible members of this section using the selected policy. Respects exclusions, capacity and conveyor access. Disabled while local transfers are pending or no item has multiple eligible members.");
             rebalanceButton.Enabled = Plugin.Instance.Transfers.PendingCount == 0 && sectionRoles.Any(role =>
@@ -160,8 +162,6 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                     y + (feature == null ? 0f : 0.027f), 0.068f,
                     _ => utility?.Invoke(section.Key), UtilityTooltip(section.Key)));
             y += GetSectionHeaderHeight(section.Key);
-            separators.AddHorizontal(new Vector2(topLeft.X, y + SeparatorSpacing * 0.5f), Size.X - Padding * 2);
-            y += SeparatorSpacing;
 
             foreach (var entry in section)
             {
@@ -178,10 +178,8 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 Elements.Add(grid);
                 y += GridHeight(entry.Stacks.Count) + Padding;
             }
+            y += SectionGap;
         }
-
-        if (sections.Length > 0)
-            separators.AddHorizontal(new Vector2(topLeft.X, y - Padding * 0.5f), Size.X - Padding * 2);
 
         totals = new MyGuiControlLabel(
             new Vector2(topLeft.X + 0.004f, Size.Y * 0.5f - FooterHeight),
@@ -349,7 +347,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         section.Kind == InventorySectionKind.Refineries
             ? "Configure ship-wide ore priorities. Priority settings save immediately; Sort now reorders refinery input stacks."
             : section.Kind == InventorySectionKind.Assemblers
-                ? "Set ship-wide component goals and supported assembler recipes. Save target saves the selected component; Craft deficits queues missing stock."
+                ? "Set ship-wide component goals and supported assembler recipes. Save target saves quantities for selected components; Craft deficits queues missing stock from all saved goals."
                 : section.Kind == InventorySectionKind.DefinitionFallback
                     ? "Open the settings available for this block type, including loadouts and supported production controls."
                     : "Configure item targets for this group's inventories, including supply, excess returns and optional maintenance.";
