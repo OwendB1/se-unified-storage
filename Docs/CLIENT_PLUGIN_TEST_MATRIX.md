@@ -20,8 +20,8 @@ The core suite verifies deterministic greedy allocation, equalization from unequ
 
 Use both a local world and an unmodified multiplayer server.
 
-1. Open a cargo terminal. Confirm Unified is initially enabled, both panes render, and disabling Unified restores the complete vanilla inventory page without reopening the terminal.
-   Repeat disable/re-enable three times. In both modes, switch character/grid on both sides and exercise every filter. Confirm each selection changes the pane and re-enabling stays enabled. Close/reopen the terminal from each mode; no callbacks may remain attached to a closed vanilla controller.
+1. Open a cargo terminal. Confirm both columns have unlabeled Unified toggles as their rightmost icons, including in character mode with hidden filters. Test all four on/off combinations; switching one column must leave the other column's layout, scope, filter, focus and scroll position unchanged. An off column in mixed mode shows individual native inventory panels; both off restores the complete original inventory controller without reopening the terminal.
+   Repeat each transition three times. In both layouts, switch character/grid on both sides and exercise every filter, search/reset and Hide Empty. Confirm each selection changes the pane and re-enabling stays enabled. Close/reopen from each combination; no duplicate toggles, shifted filter positions or callbacks attached to a closed vanilla controller may remain. Cross-column double-click, drag, amount dialog and gamepad transfer must work in both mixed directions; concrete-to-concrete moves and same-inventory rearrangement must also work.
 2. Re-enable Unified. Exercise All, Energy, Ship, Storage, System, search, Hide Empty, scrolling, mouse dragging, right-click amount entry, double-click, and gamepad A transfer.
 3. Verify identical components aggregate while damaged tools, bottles with different fill states, and other game-nonstackable content remain separate.
 4. Test character-to-cargo, cargo-to-character, and docked mechanical-group-to-mechanical-group transfers. Disconnect during an operation and confirm a partial/timeout notification rather than an optimistic UI mutation.
@@ -79,6 +79,7 @@ Use both a local world and an unmodified multiplayer server.
 - Confirm the loadout table updates its status after transfers without closing the screen or losing row selection.
 - No plugin Refill button/coordinator remains. Native gas inventories and the drain action remain accessible; legacy companion refill requests fail closed.
 - Drain an idle assembly-mode assembler, then repeat while adding a queue entry or switching to disassembly after clicking. Confirm the live guard skips it without changing its queue or mode.
+- Drain ingots from active and idle vanilla/modded refineries. Verify only output ingots move to general cargo, ore input and any non-ingot outputs remain unchanged, and totals are conserved. Exercise empty outputs, full cargo, blocked sorters, disconnect/removal, and Manual/Reserved changes after enqueue. Repeat without a companion and with the currently deployed older companion; no unsupported wire intent should be sent. Confirm Priority and Drain ingots reserve separate header rows without overlapping inventory titles.
 
 ## Performance capture
 
@@ -88,7 +89,7 @@ On a representative large station, record the same inventory-page open/close seq
 
 - Same-section drag changes display order without native inventory mutations, in both directions and into empty slots. Search and refresh preserve it; close/reopen and client reload retain it. Remove/re-add a tool without moving it to a new rank.
 - Refinery input remains ore-priority driven. Stateful rows retain native stack distinctions.
-- Two-state native icon toggles off/on repeatedly; vanilla and unified suit/grid tabs still work. Compare bounds and focus with adjacent stock icons.
+- Two-state native icon toggles off/on independently per column; vanilla and unified suit/grid tabs still work. Compare bounds and focus with adjacent stock icons; no label, rightmost placement in both columns, bright hover and darker retained focus.
 - Double-click has immediate pending feedback and no trailing-refresh starvation. Verify actual source/destination quantities; do not fake optimistic counts.
 
 ### Live UX results — 2026-09-05

@@ -68,8 +68,9 @@ internal static class TerminalInventoryBridge
         public MyGuiScreenBase Screen;
         public MyGridColorHelper ColorHelper;
         public UnifiedTerminalController Unified;
-        public MyGuiControlButton Toggle;
-        public Action<MyGuiControlButton> ToggleHandler;
+        public MyGuiControlButton LeftToggle;
+        public MyGuiControlButton RightToggle;
+        public Dictionary<MyGuiControlBase, Vector2> FilterPositions = new();
         public bool IsUnified;
     }
 
@@ -103,15 +104,16 @@ internal static class TerminalInventoryBridge
         state.Interacted = interacted;
         state.ColorHelper = colorHelper;
         state.Screen = screen;
-        EnsureToggle(state);
+        EnsureToggles(state);
         state.IsUnified = Config.Current.UnifiedByDefault;
-        state.Toggle.Checked = state.IsUnified;
-        UpdateToggleIcon(state);
+        state.LeftToggle.Checked = state.RightToggle.Checked = state.IsUnified;
+        UpdateToggleIcon(state.LeftToggle);
+        UpdateToggleIcon(state.RightToggle);
         if (!state.IsUnified)
             return true;
         try
         {
-            state.Unified.Activate(parent, user, interacted);
+            state.Unified.Activate(parent, user, interacted, state.LeftToggle.Checked, state.RightToggle.Checked);
         }
         catch (Exception exception)
         {
@@ -119,8 +121,9 @@ internal static class TerminalInventoryBridge
                 "Unified inventory initialization failed; restoring the vanilla inventory controller");
             state.Unified.Deactivate();
             state.IsUnified = false;
-            state.Toggle.Checked = false;
-            UpdateToggleIcon(state);
+            state.LeftToggle.Checked = state.RightToggle.Checked = false;
+            UpdateToggleIcon(state.LeftToggle);
+            UpdateToggleIcon(state.RightToggle);
             return true;
         }
         return false;
@@ -133,7 +136,10 @@ internal static class TerminalInventoryBridge
         if (!States.TryGetValue(instance, out var state))
             return true;
         var runOriginal = !state.IsUnified;
-        DetachToggle(state);
+        state.Parent.Controls.Remove(state.LeftToggle);
+        state.Parent.Controls.Remove(state.RightToggle);
+        foreach (var pair in state.FilterPositions)
+            pair.Key.Position = pair.Value;
         state.Unified.Dispose();
         States.Remove(instance);
         return runOriginal;
@@ -195,90 +201,108 @@ internal static class TerminalInventoryBridge
         return false;
     }
 
-    private static void EnsureToggle(State state)
+    private static void EnsureToggles(State state)
     {
-        const float filterButtonCenterY = -0.30925f;
-        state.Toggle = state.Parent.Controls.GetControlByName("UnifiedStorageToggle") as MyGuiControlButton;
-        if (state.Toggle != null)
+        if (state.LeftToggle != null &&
+            ReferenceEquals(state.Parent.Controls.GetControlByName(state.LeftToggle.Name), state.LeftToggle))
             return;
-        state.Toggle = new UnifiedModeButton
-        {
-            Name = "UnifiedStorageToggle",
-            Position = new Vector2(0, filterButtonCenterY),
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_CENTER,
-            Checked = Config.Current.UnifiedByDefault
-        };
-        var toggleSize = MyGuiControlRadioButton
-            .GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll).NormalTexture.MinSizeGui;
-        UpdateToggleIcon(state);
-        state.ToggleHandler = _ =>
-        {
-            state.Toggle.Checked = !state.Toggle.Checked;
-            UpdateToggleIcon(state);
-            ToggleChanged(state);
-        };
-        state.Toggle.ButtonClicked += state.ToggleHandler;
-        var label = new MyGuiControlLabel
-        {
-            Name = "UnifiedStorageToggleLabel",
-            Position = new Vector2(0, filterButtonCenterY),
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_CENTER,
-            Text = "Unified Storage",
-            TextScale = 0.62f
-        };
-        // Native selectors use left anchors, filters use right anchors. Center the
-        // whole label/button pair in their real gap, including when filters are hidden.
-        var gridButton = state.Parent.Controls.GetControlByName("LeftGridButton");
-        var filterButton = state.Parent.Controls.GetControlByName("LeftFilterAllButton");
-        var center = (gridButton.GetPositionAbsoluteTopRight().X + filterButton.GetPositionAbsoluteTopLeft().X) * 0.5f
-            - state.Parent.GetPositionAbsoluteCenter().X;
-        const float labelGap = 0.006f;
-        var right = center + (label.Size.X + labelGap + toggleSize.X) * 0.5f;
-        state.Toggle.Position = new Vector2(right, filterButtonCenterY);
-        label.Position = new Vector2(right - toggleSize.X - labelGap, filterButtonCenterY);
-        state.Parent.Controls.Add(label);
-        state.Parent.Controls.Add(state.Toggle);
+        state.LeftToggle = CreateToggle(state, "Left");
+        state.RightToggle = CreateToggle(state, "Right");
     }
 
-    private static void UpdateToggleIcon(State state)
+    private static MyGuiControlButton CreateToggle(State state, string prefix)
+    {
+        var toggle = new UnifiedModeButton
+        {
+            Name = prefix + "UnifiedStorageToggle",
+            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_CENTER_AND_VERTICAL_CENTER,
+            Checked = Config.Current.UnifiedByDefault
+        };
+        UpdateToggleIcon(toggle);
+        toggle.ButtonClicked += _ =>
+        {
+            toggle.Checked = !toggle.Checked;
+            UpdateToggleIcon(toggle);
+            ToggleChanged(state, prefix == "Left");
+        };
+        var lastFilter = state.Parent.Controls.GetControlByName(prefix + "FilterSystemButton");
+        toggle.Position = lastFilter.GetPositionAbsoluteCenter() - state.Parent.GetPositionAbsoluteCenter();
+        var offset = new Vector2(toggle.Size.X + 0.004f, 0);
+        foreach (var suffix in new[] { "FilterAllButton", "FilterEnergyButton", "FilterShipButton",
+                     "FilterStorageButton", "FilterSystemButton" })
+        {
+            var filter = state.Parent.Controls.GetControlByName(prefix + suffix);
+            state.FilterPositions[filter] = filter.Position;
+            filter.Position -= offset;
+        }
+        state.Parent.Controls.Add(toggle);
+        return toggle;
+    }
+
+    private static void UpdateToggleIcon(MyGuiControlButton toggle)
     {
         var style = MyGuiControlRadioButton.GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll);
-        state.Toggle.CustomStyle = new MyGuiControlButton.StyleDefinition
+        toggle.CustomStyle = new MyGuiControlButton.StyleDefinition
         {
             // Use the bright palette on hover, not on the focus retained after a click.
             NormalTexture = style.NormalTexture, HighlightTexture = style.FocusTexture,
             FocusTexture = style.HighlightTexture, ActiveTexture = style.ActiveTexture,
             SizeOverride = style.NormalTexture.MinSizeGui
         };
-        state.Toggle.SetToolTip(state.Toggle.Checked
-            ? "Unified Storage on. Click to restore vanilla inventories."
-            : "Unified Storage off. Click to combine inventories.");
+        toggle.SetToolTip(toggle.Checked
+            ? "Unified Storage on for this column. Click to show individual inventories."
+            : "Unified Storage off for this column. Click to combine inventories.");
     }
 
-    private static void ToggleChanged(State state)
+    private static void ToggleChanged(State state, bool isLeft)
     {
-        if (state.IsUnified == state.Toggle.Checked)
-            return;
-        if (state.Toggle.Checked)
+        var useUnified = state.LeftToggle.Checked || state.RightToggle.Checked;
+        try
         {
-            InvokeOriginal(CloseMethod, state.Instance);
-            state.IsUnified = true;
-            try
+            if (state.IsUnified && useUnified)
             {
-                state.Unified.Activate(state.Parent, state.User, state.Interacted);
+                state.Unified.SetUnified(isLeft, isLeft ? state.LeftToggle.Checked : state.RightToggle.Checked);
             }
-            catch (Exception exception)
+            else if (useUnified)
             {
-                RestoreVanilla(state, exception);
+                var selection = CaptureSelection(state);
+                InvokeOriginal(CloseMethod, state.Instance);
+                state.IsUnified = true;
+                state.Unified.Activate(state.Parent, state.User, state.Interacted,
+                    state.LeftToggle.Checked, state.RightToggle.Checked);
+                RestoreSelection(selection);
+            }
+            else
+            {
+                var selection = CaptureSelection(state);
+                state.Unified.Deactivate();
+                state.IsUnified = false;
+                InvokeOriginal(InitMethod, state.Instance,
+                    state.Parent, state.User, state.Interacted, state.ColorHelper, state.Screen);
+                RestoreSelection(selection);
             }
         }
-        else
+        catch (Exception exception)
         {
-            state.Unified.Deactivate();
-            state.IsUnified = false;
-            InvokeOriginal(InitMethod, state.Instance,
-                state.Parent, state.User, state.Interacted, state.ColorHelper, state.Screen);
+            RestoreVanilla(state, exception);
         }
+    }
+
+    private static List<MyGuiControlRadioButton> CaptureSelection(State state)
+    {
+        var selected = new List<MyGuiControlRadioButton>();
+        foreach (var prefix in new[] { "Left", "Right" })
+        foreach (var suffix in new[] { "SuitButton", "GridButton", "FilterAllButton", "FilterEnergyButton",
+                     "FilterShipButton", "FilterStorageButton", "FilterSystemButton" })
+            if (state.Parent.Controls.GetControlByName(prefix + suffix) is MyGuiControlRadioButton { Selected: true } button)
+                selected.Add(button);
+        return selected;
+    }
+
+    private static void RestoreSelection(List<MyGuiControlRadioButton> selected)
+    {
+        foreach (var button in selected)
+            button.Selected = true;
     }
 
     private static void RestoreVanilla(State state, Exception exception)
@@ -287,16 +311,11 @@ internal static class TerminalInventoryBridge
             "Unified inventory controller failed; restoring Keen's inventory UI");
         state.Unified.Deactivate();
         state.IsUnified = false;
-        state.Toggle.Checked = false;
-        UpdateToggleIcon(state);
+        state.LeftToggle.Checked = state.RightToggle.Checked = false;
+        UpdateToggleIcon(state.LeftToggle);
+        UpdateToggleIcon(state.RightToggle);
         InvokeOriginal(InitMethod, state.Instance,
             state.Parent, state.User, state.Interacted, state.ColorHelper, state.Screen);
-    }
-
-    private static void DetachToggle(State state)
-    {
-        if (state.Toggle != null && state.ToggleHandler != null)
-            state.Toggle.ButtonClicked -= state.ToggleHandler;
     }
 
     private static object InvokeOriginal(MethodInfo method, object instance, params object[] arguments)

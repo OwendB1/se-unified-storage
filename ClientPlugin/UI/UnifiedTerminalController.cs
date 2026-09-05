@@ -103,6 +103,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         public string ScopeChoicesSignature;
         public PaneFilter Filter;
         public bool ShowGrid;
+        public bool Unified = true;
         public ProjectedGridContext FocusedProjected;
         public MyGuiControlGrid FocusedReal;
         public Action<MyGuiControlRadioButtonGroup> TypeChanged;
@@ -145,7 +146,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     public bool Active { get; private set; }
 
-    public void Activate(IMyGuiControlsParent parent, MyEntity userEntity, MyEntity interactedEntity)
+    public void Activate(IMyGuiControlsParent parent, MyEntity userEntity, MyEntity interactedEntity,
+        bool unifiedLeft = true, bool unifiedRight = true)
     {
         if (disposed)
             throw new ObjectDisposedException(nameof(UnifiedTerminalController));
@@ -153,6 +155,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         controlsParent = parent;
         user = userEntity;
         interacted = interactedEntity;
+        left.Unified = unifiedLeft;
+        right.Unified = unifiedRight;
         BindPane(left, "Left");
         BindPane(right, "Right");
         left.ShowGrid = false;
@@ -165,6 +169,16 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         Plugin.Instance.Transfers.OperationFinished += TransferFinished;
         Active = true;
         Refresh();
+    }
+
+    public void SetUnified(bool isLeft, bool enabled)
+    {
+        var pane = isLeft ? left : right;
+        if (pane.Unified == enabled)
+            return;
+        dragAndDrop?.Stop();
+        pane.Unified = enabled;
+        RebuildPane(pane);
     }
 
     public void Deactivate()
@@ -515,32 +529,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         if (!pane.ShowGrid)
         {
             ApplyPaneLayout(pane);
-            // The native character owner already subscribes to inventory changes.
-            if (contentsOnly && pane.List.Controls.OfType<MyGuiControlInventoryOwner>().Any())
-                return;
-            pane.FocusedProjected = null;
-            pane.FocusedReal = null;
-            var controls = new List<MyGuiControlBase>();
-            if (user?.HasInventory == true)
-            {
-                var owner = new MyGuiControlInventoryOwner(user, Vector4.One)
-                {
-                    Size = new Vector2(pane.List.Size.X - 0.05f, 0.1f),
-                    OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
-                };
-                foreach (var grid in owner.ContentGrids)
-                {
-                    grid.ItemDragged += (sender, args) => StartDragging(sender, args);
-                    grid.ItemDoubleClicked += (sender, args) => RealItemDoubleClicked(pane, sender, args);
-                    grid.ItemSelected += (sender, _) => pane.FocusedReal = sender;
-                    grid.ItemControllerAction = (sender, index, action, pressed) =>
-                        GamepadTransfer(pane, sender, index, action, pressed);
-                    grid.GamepadHelpText = "A: transfer amount";
-                }
-                controls.Add(owner);
-                pane.FocusedReal = owner.ContentGrids.FirstOrDefault();
-            }
-            pane.List.InitControls(controls);
+            var entity = pane.IsLeft ? user : interacted;
+            RebuildRealPane(pane, entity?.HasInventory == true ? new[] { entity } : Array.Empty<MyEntity>());
             return;
         }
 
@@ -550,6 +540,16 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         var gridCount = 0;
         var stackCount = 0;
         var choice = UpdateScopeSelector(pane);
+        if (!pane.Unified)
+        {
+            var members = choice?.View.Projection.Roles.Where(role => RoleVisible(role, pane.Filter))
+                .SelectMany(role => role.Members).Select(member => (MyEntity)member.Owner)
+                .Distinct().OrderByDescending(owner => owner == interacted)
+                .ThenBy(owner => owner.DisplayNameText, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(owner => owner.EntityId) ?? Enumerable.Empty<MyEntity>();
+            RebuildRealPane(pane, members.Where(owner => RealOwnerVisible(pane, owner, search)));
+            return;
+        }
         if (choice != null)
         {
             var session = choice.Session;
@@ -628,13 +628,62 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             started.Elapsed.TotalMilliseconds);
     }
 
+    private void RebuildRealPane(Pane pane, IEnumerable<MyEntity> entities)
+    {
+        var owners = entities.ToArray();
+        // Native owners subscribe to inventory changes; keep their controls and selection stable.
+        var existing = pane.List.Controls.OfType<MyGuiControlInventoryOwner>().ToArray();
+        if (existing.Length == pane.List.Controls.Count &&
+            existing.Select(owner => owner.InventoryOwner).SequenceEqual(owners))
+            return;
+        var focusedInventory = pane.FocusedReal?.UserData as MyInventory;
+        pane.FocusedProjected = null;
+        pane.FocusedReal = null;
+        var controls = new List<MyGuiControlBase>();
+        foreach (var entity in owners)
+        {
+            var owner = new MyGuiControlInventoryOwner(entity, Vector4.One)
+            {
+                Size = new Vector2(pane.List.Size.X - 0.05f, 0.1f),
+                OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
+            };
+            foreach (var grid in owner.ContentGrids)
+            {
+                grid.ItemDragged += (sender, args) => StartDragging(sender, args);
+                grid.ItemDoubleClicked += (sender, args) => RealItemDoubleClicked(pane, sender, args);
+                grid.ItemSelected += (sender, _) => pane.FocusedReal = sender;
+                grid.ItemControllerAction = (sender, index, action, pressed) =>
+                    GamepadTransfer(pane, sender, index, action, pressed);
+                grid.GamepadHelpText = "A: transfer amount";
+                if (pane.FocusedReal == null || ReferenceEquals(grid.UserData, focusedInventory))
+                    pane.FocusedReal = grid;
+            }
+            controls.Add(owner);
+        }
+        pane.List.InitControls(controls);
+    }
+
+    private static bool RealOwnerVisible(Pane pane, MyEntity owner, string search)
+    {
+        var inventories = Enumerable.Range(0, owner.InventoryCount)
+            .Select(index => owner.GetInventory(index)).ToArray();
+        if (pane.HideEmpty.IsChecked && inventories.All(inventory => inventory.GetItems().Count == 0))
+            return false;
+        var words = search.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        bool Matches(string text) => words.All(word =>
+            (text ?? string.Empty).IndexOf(word, StringComparison.CurrentCultureIgnoreCase) >= 0);
+        return Matches(owner.DisplayNameText) || inventories.Any(inventory => inventory.GetItems().Any(item =>
+            Matches(Sandbox.Definitions.MyDefinitionManager.Static.GetPhysicalItemDefinition(item.Content)?.DisplayNameText)));
+    }
+
     private ScopeChoice UpdateScopeSelector(Pane pane)
     {
         var choices = new List<ScopeChoice>();
         var accessedGrid = (interacted as MyCubeBlock)?.CubeGrid ?? interacted as MyCubeGrid ?? interacted?.Parent as MyCubeGrid;
         foreach (var session in sessions)
         {
-            var projection = InventoryGroups.Build(session.Refresh(), profiles[session]);
+            var snapshot = session.Refresh();
+            var projection = pane.Unified ? InventoryGroups.Build(snapshot, profiles[session]) : snapshot;
             var mechanical = ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.MechanicalGroups)[0];
             var accessed = session.Scope.Grids.Contains(accessedGrid);
             var gridId = session.Scope.Grids.Min(grid => grid.EntityId);
@@ -741,16 +790,17 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         var amount = GetAmount(args.DragFrom.Grid, args.DragFrom.ItemIndex);
         if (args.DragButton == MySharedButtonsEnum.Secondary)
             ShowAmountDialog(amount, GetDefinition(args.DragFrom.Grid, args.DragFrom.ItemIndex), value =>
-                ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, value));
+                ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, value, args.DropTo.ItemIndex));
         else
-            ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, amount);
+            ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, amount, args.DropTo.ItemIndex);
     }
 
     private void ExecuteTransfer(
         MyGuiControlGrid sourceGrid,
         int sourceIndex,
         MyGuiControlGrid destinationGrid,
-        MyFixedPoint requestedAmount)
+        MyFixedPoint requestedAmount,
+        int destinationIndex = -1)
     {
         var item = sourceGrid.GetItemAt(sourceIndex);
         if (item?.UserData is ProjectedInventoryStack projected)
@@ -777,9 +827,34 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             return;
         }
 
-        if (item?.UserData is MyPhysicalInventoryItem realItem &&
-            sourceGrid.UserData is MyInventory realSource &&
-            destinationGrid.UserData is ProjectedGridContext destination)
+        if (item?.UserData is not MyPhysicalInventoryItem realItem ||
+            sourceGrid.UserData is not MyInventory realSource)
+            return;
+        if (destinationGrid.UserData is MyInventory physicalDestination)
+        {
+            if (ReferenceEquals(realSource, physicalDestination))
+            {
+                // Same-inventory rearrangement has no quantity delta to acknowledge.
+                var current = realSource.GetItemByID(realItem.ItemId);
+                if (realSource.Owner == null || realSource.Owner.Closed || !current.HasValue ||
+                    realSource.Owner is Sandbox.Game.Entities.Cube.MyTerminalBlock block &&
+                    !block.HasPlayerAccess(MySession.Static?.LocalPlayerId ?? 0L))
+                    return;
+                var amount = TransferPlanner.Normalize(current.Value.Content.GetObjectId(),
+                    MyFixedPoint.Min(requestedAmount, current.Value.Amount));
+                if (amount > MyFixedPoint.Zero && destinationIndex >= 0)
+                    MyInventory.TransferByUser(realSource, realSource, realItem.ItemId, destinationIndex, amount);
+                return;
+            }
+            // Concrete-to-concrete moves use vanilla requests; companion intents require a projected side.
+            Queue(new TransferPlan(realItem.Content.GetObjectId(), requestedAmount, new[]
+            {
+                new PhysicalTransferAllocation(new InventoryStackReference(realSource, realItem),
+                    physicalDestination, requestedAmount)
+            }));
+            return;
+        }
+        if (destinationGrid.UserData is ProjectedGridContext destination)
         {
             if (TryCompanionTransfer(null, null, realSource, realItem, null, destination, requestedAmount)) return;
             QueueProjected(TransferPlanFactory.Deposit(
@@ -802,7 +877,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         if (action != MyGridItemAction.Button_A || !pressed || !sourceGrid.IsValidIndex(index))
             return false;
         var targetPane = sourcePane.IsLeft ? right : left;
-        var destination = targetPane.ShowGrid
+        var destination = targetPane.ShowGrid && targetPane.Unified
             ? targetPane.FocusedProjected?.Grid
             : targetPane.FocusedReal;
         if (destination == null)
@@ -868,7 +943,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         if (!source.Grid.IsValidIndex(args.ItemIndex) ||
             source.Grid.GetItemAt(args.ItemIndex)?.UserData is not ProjectedInventoryStack projected)
             return;
-        if (!targetPane.ShowGrid && targetPane.FocusedReal?.UserData is MyInventory destination)
+        if ((!targetPane.ShowGrid || !targetPane.Unified) && targetPane.FocusedReal?.UserData is MyInventory destination)
         {
             if (TryCompanionTransfer(projected, source, null, default, destination, null, projected.Amount)) return;
             QueueProjected(TransferPlanFactory.Withdraw(projected, destination, projected.Amount, GetFlags), source);
@@ -887,19 +962,11 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void RealItemDoubleClicked(Pane sourcePane, MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
     {
-        var target = (sourcePane.IsLeft ? right : left).FocusedProjected;
-        if (target == null || !grid.IsValidIndex(args.ItemIndex) ||
-            grid.UserData is not MyInventory inventory ||
-            grid.GetItemAt(args.ItemIndex)?.UserData is not MyPhysicalInventoryItem item)
-            return;
-        if (TryCompanionTransfer(null, null, inventory, item, null, target, item.Amount)) return;
-        QueueProjected(TransferPlanFactory.Deposit(
-            inventory,
-            item,
-            item.Amount,
-            Destinations(target, item.Content.GetObjectId()),
-            profiles[target.Owner.Session].Policy,
-            GetFlags), target);
+        var targetPane = sourcePane.IsLeft ? right : left;
+        var target = targetPane.ShowGrid && targetPane.Unified
+            ? targetPane.FocusedProjected?.Grid : targetPane.FocusedReal;
+        if (target != null && grid.IsValidIndex(args.ItemIndex))
+            ExecuteTransfer(grid, args.ItemIndex, target, GetAmount(grid, args.ItemIndex));
     }
 
     private void Rebalance(
@@ -983,6 +1050,14 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         var profile = profiles[session];
         // Utilities are explicitly ship-wide, not actions on possibly overlapping display rows.
         projection = session.Refresh();
+        if (section.Kind == InventorySectionKind.Refineries)
+        {
+            // Uses bounded vanilla requests, including with older companions that lack this utility.
+            foreach (var plan in DrainRefineryEngine.Plan(projection, profile,
+                         descriptor => profile.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex)))
+                Queue(plan);
+            return;
+        }
         if (section.Kind == InventorySectionKind.Assemblers &&
             CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.DrainAssemblers)) return;
         if (section.Kind == InventorySectionKind.Assemblers)

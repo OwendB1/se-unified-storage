@@ -320,6 +320,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private static string UtilityName(InventorySectionKey section) => section.Kind switch
     {
+        InventorySectionKind.Refineries => "Drain ingots",
         InventorySectionKind.Assemblers => "Drain idle",
         _ => null
     };
@@ -332,7 +333,9 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 : "Configure definition-driven inventory loadouts";
 
     private static string UtilityTooltip(InventorySectionKey section) =>
-        "Move inventory from this ship's idle assembly-mode assemblers back to general cargo";
+        section.Kind == InventorySectionKind.Refineries
+            ? "Move ingots from this ship's refinery outputs back to general cargo; leave input ores untouched"
+            : "Move inventory from this ship's idle assembly-mode assemblers back to general cargo";
 
     private static float GetSectionHeaderHeight(InventorySectionKey section) =>
         FeatureName(section) != null && UtilityName(section) != null
