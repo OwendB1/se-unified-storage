@@ -2,7 +2,7 @@
 
 ## Current source — full companion feature pass
 
-The sections below this one record earlier milestones. This section supersedes their feature-status and size-limit statements. The live test server was still running the earlier persistence-only hub revision during implementation; no Magnetar devfolder was configured. Publish the new source pin and restart the test instance before testing these server paths. Keep mutation capabilities disabled on production servers until acceptance passes.
+The sections below this one record earlier milestones. This section supersedes their feature-status and size-limit statements. The full companion build was published at `f5f52e8e290bf4a51e2e52dc5a23ad2c55e8d000` and loaded by NewTest, with mutation capabilities explicitly enabled by its operator for acceptance testing. Subsequent gap-closure source changes require a new load before their live results count. Keep mutation capabilities disabled on production servers until acceptance passes.
 
 Implemented:
 
@@ -24,10 +24,23 @@ Current limitations to exercise or refine during acceptance:
 
 - Large manual action payloads and individual section patches still obey the 48 KiB packet ceiling; paging is for profile fetch/publication. Reduce/split a section if it exceeds that ceiling.
 - Native graph traversal cost is not bounded internally; only call counts, enumerated scope sizes and mutation counts are bounded. Profile before increasing budgets. No measured conveyor speedup is claimed.
-- Refill returns to the original inventory only; if it cannot return safely, the receipt identifies the stranded bottle instead of selecting an unrequested fallback. Utility jobs are not persisted across process restarts.
-- A metadata-only status query reports current ownership and the latest scheduler result, not a detailed per-machine dashboard. Recipe discovery, eligibility and scope reads remain runtime adapters, not pure value planners.
+- Refill tries the original inventory, then eligible Unified Cargo using the selected enabled policy and normal rights/exclusion/path checks. Pair and mutation budgets bound fallback attempts; failed or uncertain jobs identify the possibly stranded bottle. Utility jobs are not persisted across process restarts.
+- A metadata-only server status query reports current ownership and the latest scheduler result, not a detailed per-machine dashboard. The client component-target panel shows native machine-state/eligibility reasons. Shared production planning updates projected assembler workloads between assignments. Recipe discovery, eligibility and scope reads remain runtime adapters, not pure value planners.
 - A very late companion discovery after the standalone grace period cannot retract vanilla requests already sent. All automated clients must run a compatible build; programmable blocks and unrelated plugins remain outside this coordination mechanism.
 - New server paths, Quasar rendering, two-client ownership transitions, authorization races, save/restart and the full sorter/constraint/bottle matrix still require live testing against the newly published build. Prior live persistence-only evidence does not establish these results.
+
+### Gap-closure verification — 2026-09-05
+
+The client devfolder includes the component-target validation, live status refresh and projected-workload changes. NewTest still runs published companion `f5f52e8`; the new server bottle-return fallback has **not** been loaded or verified live. The final status-tooltip addition compiles but also needs a client reload. Hub pins remain unchanged pending acceptance.
+
+- Client/server Release builds pass. Build targets warn that their default binary-deployment folders are absent; the active client uses source loading instead. Existing core tests and 215 checks in the temporary companion harness pass, including projected workload updates between production assignments. `git diff --check` passes.
+- On the provided docked rigs, setting Steel Plate target to 368 with stock 367 and invoking **Craft deficits** produced exactly one plate in the assembler output. The still-open target panel refreshed to stock 368, queued 0 and **On target**. Maintenance remained off, and the temporary target was reset to zero afterwards.
+- Saving a blank target disabled the target. An oversized quantity was rejected without changing the saved value. These were UI interactions, not direct profile-file edits.
+- Unified Cargo drag/drop with an explicit quantity of one transferred a Computer between the two distinct mechanical scopes and back. Native inventory observations were 41/44 → 40/45 → 41/44. Both operations used the plugin UI, not the Remote fixture-transfer endpoint.
+- 21 live assertions passed for independent scope selection, suit/grid switching, search preserving selection, and two disable/re-enable cycles with working vanilla suit/grid controls. Re-enabling selected the accessed network on both sides.
+- The target and inventory screenshots were visually inspected at the current ultrawide resolution. No overlap appeared in the inspected layouts; this does not establish other resolutions, gamepad navigation or the complete flicker/performance matrix.
+
+Remaining acceptance requires loading the unpublished server changes through a temporary devfolder (or an explicitly approved test publication), then exercising bottle fallback and the remaining utility/scheduler paths. Two-client coordination and non-owner authorization need a second client/player. No full multiplayer acceptance or measured conveyor speedup is claimed.
 
 ## First milestone: persistence-only shared profiles
 

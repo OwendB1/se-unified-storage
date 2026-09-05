@@ -81,7 +81,7 @@ The **Assemblers** section adds a **Component Targets** area above its real Inpu
 component icon and name | in stock | already queued | target | remaining/status
 ```
 
-The list is built from loaded component and assembler-blueprint definitions, so craftable modded components appear without a hard-coded name list. Search filters the list. A zero or blank target disables that row without deleting its discovered definition. Rows with no usable blueprint or no accessible compatible assembler remain visible with a clear status instead of silently disappearing.
+The list contains only positive component outputs from blueprint classes supported by actual accessible assemblers in the selected scope. This includes modded recipes without a hard-coded name list and excludes loot-only components, such as plushies without a supported recipe. Search filters the list. A zero or blank target disables that row; previously saved unsupported targets remain persisted but inactive. Temporary machine state does not hide supported components: show power/working-state and eligibility reasons instead. The separate stock-style panel uses a 12-row table, target/blueprint editor, maintenance/threshold row and spaced footer actions. Live stock/queue/status updates preserve unsaved edits and selection.
 
 The header provides **Craft deficits**, an opt-in **Maintain targets** toggle, and a configurable start threshold. For example, a target of `10,000` with a `95%` threshold starts another batch below `9,500` and queues enough to return to `10,000`. This adopts ISY's useful margin concept without reproducing its LCD parser.
 
@@ -214,6 +214,8 @@ Prefer the eligible assembler with the least estimated queued production time, u
 
 Example: the Steel Plate target is `10,000`, accessible inventories contain `7,200`, and existing assembler queues will produce `800`. The remaining deficit is `2,000`, so the client appends only the blueprint runs needed for those `2,000` plates. If stock is `9,200` and `800` are already queued, it appends nothing even though the on-hand value alone is below a `95%` start threshold.
 
+Within a planned client batch, add each assignment's estimated production time to that assembler's projected workload before choosing the next assignment. The server rereads all queues after each synchronous addition. This avoids assigning every component deficit to the same initially idle machine. Targets accept whole quantities from zero through 1,000,000,000,000; invalid values do not overwrite the saved target.
+
 The first implementation is deliberately add-only:
 
 - Never clear, move, shorten, or change the mode of an existing assembler queue.
@@ -284,10 +286,10 @@ Expose **Refill Bottles** in the Unified Cargo toolbar when the scope contains a
 
 1. Resolve non-Reserved bottles, their gas type, and compatible non-Manual filling inventories from loaded definitions and live constraints.
 2. Require a usable filler: a powered tank with `FilledRatio > 0` and `CanStore`, or a generator with ice or creative resources and `CanProduce`.
-3. Move one same-state bottle stack at a time through ordinary client-requested transfers to a reachable working filler.
+3. Stage exactly one bottle at a time through ordinary client-requested transfers to a reachable working filler, with at most 16 source stacks selected per pass. Multi-bottle stacks contribute one bottle per explicit pass; identify the staged bottle before continuing.
 4. Explicitly invoke the same refill request as the terminal button: call `MyGasGenerator.SendRefillRequest` directly and use reflection or a Harmony reverse patch for the tank's private `MyGasTank.SendRefillRequest`. Never toggle Auto-Refill.
 5. Wait for the replicated stack gas level to change, report failure, or stop at a no-progress timeout.
-6. Return it to its original inventory when still valid; otherwise deposit it into Unified Cargo using the selected placement policy.
+6. Try its original inventory first, followed by eligible Unified Cargo destinations using the captured placement policy. Keep attempts in one bounded transfer operation with the normal access, exclusion, capacity and conveyor checks. A timeout never starts a fallback retry: report the uncertain outcome and possible stranded location.
 
 Report each selected bottle stack as filled, returned unfilled, or stranded at the filler. Do not add continuous bottle-filling automation; the explicit job is the entire client feature.
 

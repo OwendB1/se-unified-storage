@@ -202,6 +202,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
     private MyGuiControlCheckbox maintain;
     private MyGuiControlTextbox threshold;
     private MyGuiControlButton saveTarget;
+    private long nextStatusRefresh;
     private IReadOnlyList<ComponentTargetStatus> statuses;
     private string searchText = string.Empty;
 
@@ -337,7 +338,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             row.AddCell(new MyGuiControlTable.Cell(status.Stock.ToString()));
             row.AddCell(new MyGuiControlTable.Cell(status.Queued.ToString()));
             row.AddCell(new MyGuiControlTable.Cell(status.Target.ToString()));
-            row.AddCell(new MyGuiControlTable.Cell($"{status.Deficit} · {status.Status}"));
+            row.AddCell(new MyGuiControlTable.Cell($"{status.Deficit} · {status.Status}", toolTip: status.Status));
             table.Add(row);
         }
         if (table.RowsCount > 0)
@@ -349,11 +350,44 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         LoadSelected();
     }
 
+    public override bool Update(bool hasFocus)
+    {
+        var result = base.Update(hasFocus);
+        if (!hasFocus || table == null || MySandboxGame.TotalGamePlayTimeInMilliseconds < nextStatusRefresh)
+            return result;
+        nextStatusRefresh = MySandboxGame.TotalGamePlayTimeInMilliseconds + 1000;
+        statuses = ComponentTargetEngine.Evaluate(session.Refresh().Scope, profile, getFlags);
+        var latest = statuses.ToDictionary(status => status.ComponentId);
+        for (var index = 0; index < table.RowsCount; index++)
+        {
+            var row = table.GetRow(index);
+            var status = (ComponentTargetStatus)row.UserData;
+            if (!latest.TryGetValue(status.ComponentId, out var current)) continue;
+            status.Stock = current.Stock;
+            status.Queued = current.Queued;
+            status.Deficit = current.Deficit;
+            status.Status = current.Status;
+            row.GetCell(1).Text.Clear().Append(status.Stock);
+            row.GetCell(2).Text.Clear().Append(status.Queued);
+            row.GetCell(4).Text.Clear().Append($"{status.Deficit} · {status.Status}");
+            row.GetCell(4).ToolTip.ToolTips.Clear();
+            row.GetCell(4).ToolTip.AddToolTip(status.Status);
+        }
+        // Keep the editor's unsaved quantity/recipe and the table's selection/scroll intact.
+        return result;
+    }
+
     private void SaveSelected()
     {
-        if (table.SelectedRow?.UserData is not ComponentTargetStatus status ||
-            !decimal.TryParse(target.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
+        if (table.SelectedRow?.UserData is not ComponentTargetStatus status)
             return;
+        var text = string.IsNullOrWhiteSpace(target.Text) ? "0" : target.Text;
+        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) ||
+            amount < 0 || amount > 1000000000000m || amount != decimal.Truncate(amount))
+        {
+            Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Target must be a whole number from 0 to 1,000,000,000,000. Blank disables it.", 5000);
+            return;
+        }
         var record = profile.ComponentTargets.FirstOrDefault(candidate =>
             string.Equals(candidate.DefinitionId, status.ComponentId.ToString(), StringComparison.Ordinal));
         if (record == null)

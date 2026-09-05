@@ -10,7 +10,7 @@ public sealed class ProductionTargetCore
     public string Item { get; set; }
     public decimal Deficit { get; set; }
     public IReadOnlyDictionary<string, decimal> Outputs { get; set; }
-    public IReadOnlyList<(long Id, double QueueSeconds)> Assemblers { get; set; }
+    public IReadOnlyList<(long Id, double QueueSeconds, double SecondsPerRun)> Assemblers { get; set; }
 }
 
 public static class AutomationPlannerCore
@@ -19,14 +19,17 @@ public static class AutomationPlannerCore
     {
         var remaining = targets.ToDictionary(target => target.Item, target => Math.Max(0, target.Deficit), StringComparer.Ordinal);
         var result = new List<(int, long, decimal)>();
+        var workloads = targets.Where(target => target.Assemblers != null).SelectMany(target => target.Assemblers)
+            .GroupBy(assembler => assembler.Id).ToDictionary(group => group.Key, group => group.Max(assembler => assembler.QueueSeconds));
         for (var index = 0; index < targets.Count; index++)
         {
             var target = targets[index];
             if (remaining[target.Item] <= 0 || target.Outputs == null || target.Assemblers == null || target.Assemblers.Count == 0 ||
                 !target.Outputs.TryGetValue(target.Item, out var yield) || yield <= 0) continue;
             var runs = decimal.Ceiling(remaining[target.Item] / yield);
-            var assembler = target.Assemblers.OrderBy(candidate => candidate.QueueSeconds).ThenBy(candidate => candidate.Id).First();
+            var assembler = target.Assemblers.OrderBy(candidate => workloads[candidate.Id]).ThenBy(candidate => candidate.Id).First();
             result.Add((index, assembler.Id, runs));
+            workloads[assembler.Id] += (double)runs * Math.Max(0, assembler.SecondsPerRun);
             foreach (var output in target.Outputs)
                 if (remaining.TryGetValue(output.Key, out var deficit)) remaining[output.Key] = Math.Max(0, deficit - output.Value * runs);
         }

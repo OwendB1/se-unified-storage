@@ -41,8 +41,8 @@ public sealed class BottleRefillCoordinator
             getFlags);
         InventoryManagementFlags CapturedFlags(InventoryDescriptor descriptor) =>
             flagSnapshot.TryGetValue((descriptor.OwnerEntityId, descriptor.InventoryIndex), out var value)
-                ? value
-                : InventoryManagementFlags.None;
+                ? value | getFlags(descriptor)
+                : InventoryManagementFlags.ManualBlock;
         var fillers = projection.Scope.Inventories.Where(descriptor =>
                 descriptor.Roles.Any(role => role.Kind == InventoryRoleKind.Bottles) &&
                 (CapturedFlags(descriptor) & (InventoryManagementFlags.ManualBlock |
@@ -62,7 +62,13 @@ public sealed class BottleRefillCoordinator
                 candidate.Inventory.CheckConstraint(definitionId) &&
                 candidate.Inventory.GetItemAmount(definitionId) == MyFixedPoint.Zero);
             if (filler != null)
-                stages.Enqueue(new BottleStage(source, item, filler, interactedEntity, identityId, CapturedFlags));
+            {
+                if (stages.Count >= 16) break;
+                var single = item;
+                single.Amount = (MyFixedPoint)1;
+                stages.Enqueue(new BottleStage(source, single, filler, interactedEntity, identityId, CapturedFlags,
+                    projection.Scope, profile.Policy));
+            }
         }
         Plugin.Instance.Transfers.OperationFinished += TransferFinished;
     }
@@ -89,7 +95,7 @@ public sealed class BottleRefillCoordinator
         }
         if (active.State != BottleStageState.WaitingForRefill)
             return;
-        var filled = FindBottle(active.Filler.Inventory, active.DefinitionId, requireFilled: true);
+        var filled = FindBottle(active.Filler.Inventory, active.DefinitionId, active.StagedItemId, requireFilled: true);
         if (filled.HasValue)
         {
             active.WasFilled = true;
@@ -98,7 +104,7 @@ public sealed class BottleRefillCoordinator
         }
         if (DateTime.UtcNow < refillDeadline)
             return;
-        var unfilled = FindBottle(active.Filler.Inventory, active.DefinitionId, requireFilled: false);
+        var unfilled = FindBottle(active.Filler.Inventory, active.DefinitionId, active.StagedItemId, requireFilled: false);
         if (unfilled.HasValue)
             QueueReturn(unfilled.Value);
         else
@@ -127,6 +133,13 @@ public sealed class BottleRefillCoordinator
         }
         if (active.State == BottleStageState.MovingToFiller)
         {
+            var staged = active.Filler.Inventory.GetItems().Where(item => item.Content.GetObjectId() == active.DefinitionId).ToArray();
+            if (staged.Length != 1 || staged[0].Amount != (MyFixedPoint)1)
+            {
+                CompleteStage("staged bottle identity is ambiguous; no further transfers");
+                return;
+            }
+            active.StagedItemId = staged[0].ItemId;
             switch (active.Filler.Owner)
             {
                 case MyGasGenerator generator:
@@ -157,10 +170,19 @@ public sealed class BottleRefillCoordinator
         var amount = MyFixedPoint.Min(item.Amount, active.OriginalItem.Amount);
         var source = new InventoryStackReference(active.Filler, item);
         active.State = BottleStageState.Returning;
+        var fallback = TransferPlanFactory.Deposit(active.Filler.Inventory, item, amount,
+            active.Scope.Inventories.Where(member => member.Section.Kind == InventorySectionKind.UnifiedCargo &&
+                !member.Owner.Closed && !ReferenceEquals(member.Inventory, active.Source.Inventory) &&
+                !ReferenceEquals(member.Inventory, active.Filler.Inventory)), active.Policy, active.GetFlags);
+        // One bounded operation tries the original first, then normal cargo destinations.
+        // The executor clamps to the remaining amount and stops on uncertain outcomes.
+        var allocations = new[] { new PhysicalTransferAllocation(source, active.Source, amount) }
+            .Concat(fallback.Allocations.Select(allocation =>
+                new PhysicalTransferAllocation(source, allocation.DestinationDescriptor, allocation.Amount)));
         QueueTransfer(new TransferPlan(
             source.DefinitionId,
             amount,
-            new[] { new PhysicalTransferAllocation(source, active.Source.Inventory, amount) }));
+            allocations.ToArray()));
     }
 
     private void QueueTransfer(TransferPlan plan)
@@ -184,10 +206,11 @@ public sealed class BottleRefillCoordinator
     private static MyPhysicalInventoryItem? FindBottle(
         Sandbox.Game.MyInventory inventory,
         MyDefinitionId definitionId,
+        uint stagedItemId,
         bool requireFilled)
     {
         foreach (var item in inventory.GetItems())
-            if (item.Content.GetObjectId() == definitionId &&
+            if (item.ItemId == stagedItemId && item.Amount == (MyFixedPoint)1 && item.Content.GetObjectId() == definitionId &&
                 item.Content is MyObjectBuilder_GasContainerObject bottle &&
                 (!requireFilled || bottle.GasLevel > 0f))
                 return item;
@@ -218,7 +241,8 @@ public sealed class BottleRefillCoordinator
             InventoryDescriptor filler,
             MyEntity interactedEntity,
             long identityId,
-            Func<InventoryDescriptor, InventoryManagementFlags> getFlags)
+            Func<InventoryDescriptor, InventoryManagementFlags> getFlags,
+            MechanicalInventoryScope scope, DistributionPolicy policy)
         {
             Source = source;
             OriginalItem = originalItem;
@@ -226,6 +250,8 @@ public sealed class BottleRefillCoordinator
             InteractedEntity = interactedEntity;
             IdentityId = identityId;
             GetFlags = getFlags;
+            Scope = scope;
+            Policy = policy;
         }
 
         public InventoryDescriptor Source { get; }
@@ -235,6 +261,9 @@ public sealed class BottleRefillCoordinator
         public MyEntity InteractedEntity { get; }
         public long IdentityId { get; }
         public Func<InventoryDescriptor, InventoryManagementFlags> GetFlags { get; }
+        public MechanicalInventoryScope Scope { get; }
+        public DistributionPolicy Policy { get; }
+        public uint StagedItemId { get; set; }
         public BottleStageState State { get; set; }
         public bool WasFilled { get; set; }
     }

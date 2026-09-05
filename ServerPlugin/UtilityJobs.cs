@@ -135,7 +135,7 @@ internal sealed class UtilityJobs
                 }
                 var filled = ((MyObjectBuilder_GasContainerObject)staged.Value.Content).GasLevel > 0;
                 if (!filled && now < job.WaitUntil) return;
-                if (Move(job, job.Filler, job.Original, job.StagedId, (MyFixedPoint)1) <= 0)
+                if (!ReturnBottle(job, staged.Value))
                 { Finish(job, UtilityJobState.Partial, "Cannot return bottle. " + Location(job)); return; }
                 if (filled) job.Receipt.CompletedItems++;
                 else job.Receipt.Failure = TransferFailure.InsufficientStock;
@@ -179,6 +179,31 @@ internal sealed class UtilityJobs
             ServerInventoryScope.Excluded(job.Settings, member, destination)) return false;
         var profiles = store.InScope(new HashSet<long>(job.Scope.Grids.Select(grid => grid.EntityId)));
         return profiles.Length <= 1 && profiles.All(profile => !ServerInventoryScope.Excluded(profile.Settings, member, destination));
+    }
+
+    private bool ReturnBottle(Job job, MyPhysicalInventoryItem bottle)
+    {
+        var previousFailure = job.Receipt.Failure;
+        var candidates = new List<InventoryDescriptor> { job.Original };
+        if (PolicyEnabled(job.Settings.Policy))
+        {
+            var fallback = TransferPlanFactory.Deposit(job.Filler.Inventory, bottle, (MyFixedPoint)1,
+                job.Scope.Inventories.Where(member => !member.Owner.Closed && member.Section.Kind == InventorySectionKind.UnifiedCargo &&
+                    !ReferenceEquals(member.Inventory, job.Filler.Inventory) && !ReferenceEquals(member.Inventory, job.Original.Inventory)),
+                job.Settings.Policy, member => ServerInventoryScope.Flags(job.Settings, member));
+            candidates.AddRange(fallback.Allocations.Select(allocation => allocation.DestinationDescriptor).Distinct());
+        }
+        var checkedPairs = 0;
+        foreach (var destination in candidates)
+        {
+            if (++checkedPairs > Math.Max(1, Math.Min(128, config.TransferPairsPerIntent)) ||
+                job.Receipt.Mutations >= Math.Max(1, Math.Min(128, config.AllocationsPerIntent)))
+            { job.Receipt.Failure = TransferFailure.WorkLimit; return false; }
+            if (Move(job, job.Filler, destination, job.StagedId, (MyFixedPoint)1) <= 0) continue;
+            job.Receipt.Failure = previousFailure;
+            return true;
+        }
+        return false;
     }
 
     private MyFixedPoint Move(Job job, InventoryDescriptor source, InventoryDescriptor destination, uint id, MyFixedPoint wanted)

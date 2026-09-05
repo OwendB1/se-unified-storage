@@ -110,12 +110,13 @@ public static class ComponentTargetEngine
                 BlueprintChoices = choices,
                 EligibleAssemblers = eligible,
                 Status = target <= MyFixedPoint.Zero
-                    ? "Disabled"
+                    ? "Target off"
                     : selected == null
                         ? choices.Length == 0 ? "No usable blueprint" : "Choose blueprint"
                         : eligible.Length == 0
-                            ? "No eligible assembler"
-                            : deficit > MyFixedPoint.Zero ? "Ready" : "On target"
+                            ? "No eligible assembler: " + string.Join(", ", assemblers.Where(assembler => assembler.CanUseBlueprint(selected))
+                                .Select(assembler => AssemblerStatus(assembler, scope, getFlags)).Distinct())
+                            : deficit > MyFixedPoint.Zero ? QueueStatus(eligible) : "On target"
             });
         }
         return result;
@@ -149,7 +150,8 @@ public static class ComponentTargetEngine
             Item = status.ComponentId.ToString(), Deficit = (decimal)status.Deficit,
             Outputs = status.Blueprint?.Results.GroupBy(output => output.Id.ToString())
                 .ToDictionary(group => group.Key, group => group.Sum(output => (decimal)output.Amount)),
-            Assemblers = status.EligibleAssemblers.Select(assembler => (assembler.EntityId, EstimatedQueueSeconds(assembler))).ToArray()
+            Assemblers = status.EligibleAssemblers.Select(assembler => (assembler.EntityId, EstimatedQueueSeconds(assembler),
+                status.Blueprint.BaseProductionTimeInSeconds / ProductionSpeed(assembler))).ToArray()
         }).ToArray();
         foreach (var addition in AutomationPlannerCore.Production(snapshots))
         {
@@ -182,6 +184,7 @@ public static class ComponentTargetEngine
     {
         if (assembler.Closed || assembler.DisassembleEnabled || assembler.IsSlave ||
             !assembler.UseConveyorSystem || !assembler.CanUseBlueprint(blueprint) ||
+            assembler.Queue.Count() >= Sandbox.Game.World.MySession.Static.MaxProductionQueueLength ||
             assembler.CurrentState is MyAssembler.StateEnum.InventoryFull or MyAssembler.StateEnum.MissingItems)
             return false;
         return !scope.Inventories.Where(descriptor => ReferenceEquals(descriptor.Owner, assembler))
@@ -189,12 +192,36 @@ public static class ComponentTargetEngine
                                                         InventoryManagementFlags.ReservedInventory)) != 0);
     }
 
-    private static double EstimatedQueueSeconds(MyAssembler assembler)
+    private static string QueueStatus(IReadOnlyList<MyAssembler> assemblers)
     {
-        var speed = Math.Max(0.001f,
+        var first = assemblers[0];
+        return first.CurrentState is MyAssembler.StateEnum.Disabled or MyAssembler.StateEnum.NotWorking or MyAssembler.StateEnum.NotEnoughPower
+            ? "Queueable: " + first.CurrentState
+            : "Ready";
+    }
+
+    private static string AssemblerStatus(MyAssembler assembler, MechanicalInventoryScope scope,
+        Func<InventoryDescriptor, InventoryManagementFlags> getFlags)
+    {
+        if (assembler.Closed) return "Removed";
+        if (scope.Inventories.Where(member => ReferenceEquals(member.Owner, assembler)).Any(member =>
+            (getFlags(member) & (InventoryManagementFlags.ManualBlock | InventoryManagementFlags.ReservedInventory)) != 0))
+            return "Manual / reserved";
+        if (assembler.DisassembleEnabled) return "Disassembly";
+        if (assembler.IsSlave) return "Cooperative";
+        if (!assembler.UseConveyorSystem) return "Conveyors off";
+        if (assembler.Queue.Count() >= Sandbox.Game.World.MySession.Static.MaxProductionQueueLength) return "Queue full";
+        return assembler.CurrentState.ToString();
+    }
+
+    private static double ProductionSpeed(MyAssembler assembler) => Math.Max(0.001f,
             Sandbox.Game.World.MySession.Static.AssemblerSpeedMultiplier *
             (((MyAssemblerDefinition)assembler.BlockDefinition).AssemblySpeed +
              (assembler.UpgradeValues.TryGetValue("Productivity", out var productivity) ? productivity : 0f)));
+
+    private static double EstimatedQueueSeconds(MyAssembler assembler)
+    {
+        var speed = ProductionSpeed(assembler);
         return assembler.Queue.Sum(item => (double)item.Amount *
             item.Blueprint.BaseProductionTimeInSeconds / speed);
     }
