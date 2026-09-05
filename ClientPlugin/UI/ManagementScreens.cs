@@ -136,9 +136,9 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
             row.AddCell(new MyGuiControlTable.Cell(member.Owner.DisplayNameText,
                 toolTip: $"{member.Owner.CubeGrid.DisplayName}\nBlock ID: {member.OwnerEntityId}\nSelect this row to edit its buffered exclusions."));
             row.AddCell(new MyGuiControlTable.Cell((member.InventoryIndex + 1).ToString(CultureInfo.InvariantCulture),
-                toolTip: "Inventory number within this block. Reserved and Source Only affect only this inventory; Unmanaged affects the whole block."));
+                toolTip: UnifiedStorageHelp.Wrap("Inventory number within this block. Reserved and Source Only affect only this inventory; Unmanaged affects the whole block.")));
             row.AddCell(new MyGuiControlTable.Cell(
-                UnifiedStorageHelp.ManagementState(Flags(member)), toolTip: "Pending exclusions for this row. Managed means no exclusions. An asterisk means Apply is still required."));
+                UnifiedStorageHelp.ManagementState(Flags(member)), toolTip: UnifiedStorageHelp.Wrap("Managed means no exclusions. An asterisk marks pending changes.")));
             table.Add(row);
         }
         table.SelectionChanged += LoadSelected;
@@ -323,7 +323,7 @@ internal sealed class CraftingTargetsScreen : UnifiedStorageScreen
         table.SelectionChanged += LoadSelected;
         Controls.Add(table);
 
-        table.SetToolTip("Only items craftable by this construct's assemblers. Recipes are chosen automatically; existing saved recipe choices are retained.");
+        table.SetToolTip(UnifiedStorageHelp.Wrap("Only items craftable by this construct's assemblers. Recipes are chosen automatically; existing saved recipe choices are retained."));
 
         Controls.Add(Label("Target", new Vector2(-0.36f, 0.21f)));
         target = new MyGuiControlTextbox(new Vector2(-0.28f, 0.21f), "0", 18, type: MyGuiControlTextboxType.DigitsOnly)
@@ -377,7 +377,7 @@ internal sealed class CraftingTargetsScreen : UnifiedStorageScreen
         }
         target.Text = selected.All(item => item.Target == status.Target)
             ? ((decimal)status.Target).ToString("0", CultureInfo.InvariantCulture) : "";
-        target.SetToolTip("Desired stock. Zero disables the goal; a blank value indicates mixed targets.");
+        target.SetToolTip(UnifiedStorageHelp.Wrap("Desired stock. Zero disables the goal; a blank value indicates mixed targets."));
     }
 
     private void PopulateTable(IEnumerable<MyDefinitionId> selectedComponents = null)
@@ -789,7 +789,7 @@ internal sealed class RefineryPriorityScreen : UnifiedStorageScreen
             row.AddCell(new MyGuiControlTable.Cell(
                 MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName));
             row.AddCell(new MyGuiControlTable.Cell(model.AcceptingRefineryCounts[id].ToString(CultureInfo.InvariantCulture),
-                toolTip: "Number of refineries whose definitions support this ore. Support alone does not guarantee available power, capacity or access."));
+                toolTip: UnifiedStorageHelp.Wrap("Number of refineries whose definitions support this ore. Support alone does not guarantee available power, capacity or access.")));
             table.Add(row);
         }
         Controls.Add(table);

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using ClientPlugin.Inventory;
 using ClientPlugin.Profiles;
@@ -8,6 +9,7 @@ using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.GameSystems;
 using Sandbox.Game.GameSystems.Conveyors;
+using Sandbox.Game.World;
 using VRage;
 using VRage.Game;
 using VRage.Game.Entity;
@@ -45,6 +47,8 @@ public sealed class TransferExecutor
 {
     private readonly Queue<QueuedOperation> operations = new();
     private QueuedOperation active;
+    private readonly OperationRateBudget transferBudget = new();
+    private readonly OperationRateBudget validationBudget = new();
 
     public event Action<TransferOperationResult> OperationFinished;
 
@@ -78,9 +82,7 @@ public sealed class TransferExecutor
     {
         if (Plugin.Instance.Companion?.Busy == true && active?.InFlight == null)
             return;
-        var requestBudget = Math.Max(1, Math.Min(
-            Config.Current.TransfersPerFrame,
-            Config.Current.ReachabilityQueriesPerFrame));
+        var now = (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
         if (active == null && operations.Count > 0)
         {
             active = operations.Dequeue();
@@ -129,8 +131,12 @@ public sealed class TransferExecutor
             return;
         }
 
-        while (requestBudget-- > 0 && active.NextAllocation < active.Plan.Allocations.Count)
+        var candidatesThisFrame = 64;
+        while (candidatesThisFrame-- > 0 && active.NextAllocation < active.Plan.Allocations.Count &&
+               transferBudget.Available(now, Config.Current.TransfersPerSecond) &&
+               validationBudget.Available(now, Config.Current.ReachabilityQueriesPerSecond))
         {
+            validationBudget.Consume();
             var allocation = active.Plan.Allocations[active.NextAllocation];
             if (!TryPreflight(active, allocation, out var amount, out var reason))
             {
@@ -150,6 +156,7 @@ public sealed class TransferExecutor
 
             var beforeSource = allocation.Source.Inventory.GetItemAmount(active.Plan.ItemId);
             var beforeDestination = allocation.DestinationInventory.GetItemAmount(active.Plan.ItemId);
+            transferBudget.Consume();
             MyInventory.TransferByUser(
                 allocation.Source.Inventory,
                 allocation.DestinationInventory,
@@ -398,6 +405,14 @@ public static class ConveyorReachability
         if (source == null || destination == null)
             return false;
         if (ReferenceEquals(source, destination) || ReferenceEquals(source.Owner, destination.Owner))
+            return true;
+
+        // Vanilla permits direct interaction with the opened inventory (including
+        // backpacks and non-conveyor blocks), but not arbitrary character endpoints.
+        var character = MySession.Static?.LocalCharacter;
+        if (character != null && interactedEntity != null && MySession.Static.LocalPlayerId == identityId &&
+            ((ReferenceEquals(source.Owner, character) && ReferenceEquals(destination.Owner, interactedEntity)) ||
+             (ReferenceEquals(destination.Owner, character) && ReferenceEquals(source.Owner, interactedEntity))))
             return true;
 
         var sourceEndpoint = ResolveEndpoint(source, interactedEntity);

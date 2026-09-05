@@ -28,7 +28,7 @@ internal class DropdownAttribute : Attribute, IElement
     {
         VisibleRows = visibleRows;
         Label = label;
-        Description = description;
+        Description = UI.UnifiedStorageHelp.Wrap(description);
     }
 
     public List<Control> GetControls(string name, Func<object> propertyGetter, Action<object> propertySetter)

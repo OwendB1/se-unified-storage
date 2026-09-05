@@ -167,9 +167,8 @@ public static class TransferPlanner
             0,
             pair.Value.Capacity.RawValue));
         var quantum = IsFractional(itemId) ? 1L : 1_000_000L;
-        var allocations = policy == DistributionPolicy.EvenByItem
-            ? DistributionPlannerCore.Even(amount.RawValue, coreCandidates, quantum)
-            : DistributionPlannerCore.Greedy(amount.RawValue, coreCandidates, quantum);
+        var allocations = DistributionPlannerCore.PreferWholeUnits(amount.RawValue, coreCandidates, quantum,
+            policy == DistributionPolicy.EvenByItem);
         return allocations.Select(allocation => new DestinationAllocation(
             candidatesByKey[allocation.Key].Inventory,
             FromRaw(allocation.Amount))).ToArray();
@@ -237,13 +236,13 @@ public static class TransferPlanner
         var candidates = ordered.ToArray();
         var byKey = candidates.Select((candidate, index) => (candidate, index))
             .ToDictionary(pair => (long)pair.index, pair => pair.candidate);
-        return DistributionPlannerCore.Greedy(
+        return DistributionPlannerCore.PreferWholeUnits(
                 amount.RawValue,
                 byKey.Select(pair => new DistributionCandidateCore(
                     pair.Key,
                     pair.Value.CurrentItemAmount.RawValue,
                     pair.Value.Capacity.RawValue)),
-                IsFractional(itemId) ? 1L : 1_000_000L)
+                IsFractional(itemId) ? 1L : 1_000_000L, even: false)
             .Select(allocation => new DestinationAllocation(
                 byKey[allocation.Key].Inventory,
                 FromRaw(allocation.Amount)))
@@ -257,13 +256,13 @@ public static class TransferPlanner
     {
         var byKey = candidates.Select((candidate, index) => (candidate, index))
             .ToDictionary(pair => (long)pair.index, pair => pair.candidate);
-        return DistributionPlannerCore.Even(
+        return DistributionPlannerCore.PreferWholeUnits(
                 amount.RawValue,
                 byKey.Select(pair => new DistributionCandidateCore(
                     pair.Key,
                     pair.Value.CurrentItemAmount.RawValue,
                     pair.Value.Capacity.RawValue)),
-                IsFractional(itemId) ? 1L : 1_000_000L)
+                IsFractional(itemId) ? 1L : 1_000_000L, even: true)
             .Select(allocation => new DestinationAllocation(
                 byKey[allocation.Key].Inventory,
                 FromRaw(allocation.Amount)))

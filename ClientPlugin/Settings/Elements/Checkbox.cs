@@ -12,7 +12,7 @@ class CheckboxAttribute : Attribute, IElement
     public CheckboxAttribute(string label = null, string description = null)
     {
         Label = label;
-        Description = description;
+        Description = UI.UnifiedStorageHelp.Wrap(description);
     }
 
     public List<Control> GetControls(string name, Func<object> propertyGetter, Action<object> propertySetter)

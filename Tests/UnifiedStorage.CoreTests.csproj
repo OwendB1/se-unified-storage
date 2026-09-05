@@ -6,6 +6,7 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\ClientPlugin\Transfers\OperationRateBudget.cs" Link="OperationRateBudget.cs" />
     <Compile Include="..\Shared\Profiles\*.cs" Link="Profiles\%(Filename)%(Extension)" />
     <Compile Include="..\Shared\Companion\ProfileCodec.cs" Link="ProfileCodec.cs" />
     <Compile Include="..\Shared\Companion\Protocol.cs" Link="Protocol.cs" />

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using ClientPlugin.Profiles;
 
@@ -126,6 +127,7 @@ internal static class UnifiedStorageHelp
     public static string Wrap(string text)
     {
         if (text == null) return null;
+        text = Regex.Replace(text, @"(?<=[.!?]) +(?=[A-Z])", "\n");
         var result = new StringBuilder();
         foreach (var paragraph in text.Split('\n'))
         {
@@ -135,7 +137,7 @@ internal static class UnifiedStorageHelp
             {
                 if (column > 0)
                 {
-                    if (column + word.Length + 1 > 88) { result.Append('\n'); column = 0; }
+                    if (column + word.Length + 1 > 64) { result.Append('\n'); column = 0; }
                     else { result.Append(' '); column++; }
                 }
                 result.Append(word);

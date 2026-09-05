@@ -18,8 +18,8 @@ public sealed class Config : INotifyPropertyChanged
     private bool forceClientOnly;
     private DistributionPolicy defaultPolicy = DistributionPolicy.ExistingStackFirst;
     private InventoryScopeMode scopeMode = InventoryScopeMode.MechanicalGroups;
-    private int transfersPerFrame = 4;
-    private int reachabilityQueriesPerFrame = 8;
+    private int transfersPerSecond = 240;
+    private int reachabilityQueriesPerSecond = 480;
     private int refreshDebounceMilliseconds;
     private int acknowledgementTimeoutMilliseconds = 3000;
 
@@ -56,18 +56,18 @@ public sealed class Config : INotifyPropertyChanged
     }
 
     [Separator("Work budgets")]
-    [Slider(1, 32, 1, SliderAttribute.SliderType.Integer, description: "Maximum inventory transfer requests issued in one simulation frame.")]
-    public int TransfersPerFrame
+    [Slider(1, 1920, 1, SliderAttribute.SliderType.Integer, description: "Maximum local inventory transfer requests per second. Set to 1 to send at most one per second. Server companion jobs use the server's own budgets.")]
+    public int TransfersPerSecond
     {
-        get => transfersPerFrame;
-        set => SetField(ref transfersPerFrame, value);
+        get => transfersPerSecond;
+        set => SetField(ref transfersPerSecond, value);
     }
 
-    [Slider(1, 64, 1, SliderAttribute.SliderType.Integer, description: "Maximum conveyor reachability queries evaluated in one simulation frame.")]
-    public int ReachabilityQueriesPerFrame
+    [Slider(1, 3840, 1, SliderAttribute.SliderType.Integer, description: "Maximum local transfer candidates validated per second, including rejected candidates. Lower values reduce conveyor-check work but can slow transfers.")]
+    public int ReachabilityQueriesPerSecond
     {
-        get => reachabilityQueriesPerFrame;
-        set => SetField(ref reachabilityQueriesPerFrame, value);
+        get => reachabilityQueriesPerSecond;
+        set => SetField(ref reachabilityQueriesPerSecond, value);
     }
 
     [Slider(0, 50, 10, SliderAttribute.SliderType.Integer, description: "Maximum coalescing delay for inventory display updates (legacy values are capped at 50 ms). Zero refreshes next frame.")]

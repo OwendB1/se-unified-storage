@@ -256,9 +256,9 @@ internal static class TerminalInventoryBridge
             FocusTexture = style.HighlightTexture, ActiveTexture = style.ActiveTexture,
             SizeOverride = style.NormalTexture.MinSizeGui
         };
-        toggle.SetToolTip(toggle.Checked
+        toggle.SetToolTip(UnifiedStorageHelp.Wrap(toggle.Checked
             ? "Unified Storage on for this column. Click to show individual inventories without changing the other column. Turning both off restores the original inventory controller."
-            : "Unified Storage off for this column. Click to combine this column's inventories. The other column keeps its current layout; items are not moved.");
+            : "Unified Storage off for this column. Click to combine this column's inventories. The other column keeps its current layout; items are not moved."));
     }
 
     private static void ToggleChanged(State state, bool isLeft)

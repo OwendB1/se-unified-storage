@@ -36,7 +36,7 @@ public static class ProjectionViewBuilder
             {
                 new InventoryProjectionView(
                     $"mechanical:{session.Scope.Grids.Min(grid => grid.EntityId)}",
-                    session.Scope.AnchorGrid.DisplayName,
+                    session.Scope.DisplayName,
                     projection)
             }
         };

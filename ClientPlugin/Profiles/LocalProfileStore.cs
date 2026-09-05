@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Serialization;
 using ClientPlugin.Inventory;
+using Sandbox.Game.World;
 using Shared.Logging;
 using VRage.FileSystem;
 
@@ -21,7 +22,6 @@ public sealed class LocalProfileDocument
 public sealed class LocalProfileStore
 {
     private readonly IPluginLogger log;
-    private readonly string path;
     private readonly string directory;
     private readonly Dictionary<(string World, long Anchor), string> files = new();
     private LocalProfileDocument document;
@@ -31,8 +31,7 @@ public sealed class LocalProfileStore
     public LocalProfileStore(IPluginLogger log, string path = null)
     {
         this.log = log ?? throw new ArgumentNullException(nameof(log));
-        this.path = path ?? Path.Combine(MyFileSystem.UserDataPath, "Storage", "UnifiedStorage.profiles.xml");
-        directory = Path.Combine(Path.GetDirectoryName(this.path), "UnifiedStorage", "Profiles");
+        directory = path ?? Path.Combine(MyFileSystem.UserDataPath, "Storage", "UnifiedStorage", "Profiles");
         document = Load();
     }
 
@@ -76,9 +75,7 @@ public sealed class LocalProfileStore
             Policy = Config.Current.DefaultPolicy
         };
         document.Profiles.Add(profile);
-        var name = scope.AnchorGrid.DisplayName ?? "Grid";
-        var safe = new string(name.Select(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-' ? c : '_').Take(60).ToArray()).Trim();
-        files[(profile.WorldId, anchor)] = Path.Combine(directory, (safe.Length == 0 ? "Grid" : safe) + "-" + FileName(profile));
+        files[(profile.WorldId, anchor)] = Path.Combine(WorldDirectory(profile), NormalizeName(scope.DisplayName, "Grid") + "-" + FileName(profile));
         InventoryGroupRecord.Migrate(profile);
         return profile;
     }
@@ -92,7 +89,8 @@ public sealed class LocalProfileStore
         {
             var key = (profile.WorldId, profile.ScopeAnchorEntityId);
             if (!files.TryGetValue(key, out var destination))
-                files[key] = destination = Path.Combine(directory, FileName(profile));
+                files[key] = destination = Path.Combine(WorldDirectory(profile), FileName(profile));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination));
             Write(destination, new LocalProfileDocument
             {
                 Profiles = new List<ScopeProfile> { profile },
@@ -100,26 +98,30 @@ public sealed class LocalProfileStore
                     order.Anchor == profile.ScopeAnchorEntityId).ToList()
             });
         }
-        // Keep the monolithic source as a recovery copy, but stop importing it after
-        // every grid has been written successfully. Interrupted migration is retryable.
-        var legacyFiles = Directory.GetFiles(Path.GetDirectoryName(path), Path.GetFileName(path) + "*")
-            .Where(file => file == path || file == path + ".bak" || file.StartsWith(path + ".migrated.", StringComparison.Ordinal) ||
-                file.StartsWith(path + ".before-adoption.", StringComparison.Ordinal)).ToArray();
-        if (legacyFiles.Length > 0)
-        {
-            var backups = Path.Combine(Path.GetDirectoryName(directory), "Backups");
-            Directory.CreateDirectory(backups);
-            foreach (var file in legacyFiles)
-                File.Move(file, Path.Combine(backups, Path.GetFileName(file) + "." + Guid.NewGuid().ToString("N") + ".bak"));
-        }
         displayOrderSaveAt = default;
     }
 
-    private static string FileName(ScopeProfile profile)
+    private string WorldDirectory(ScopeProfile profile)
+    {
+        var existing = files.FirstOrDefault(pair => pair.Key.World == profile.WorldId).Value;
+        if (existing != null) return Path.GetDirectoryName(existing);
+        var name = profile.WorldId == ProfileIdentity.CurrentWorld ? MySession.Static?.Name : null;
+        return Path.Combine(directory, WorldHash(profile) + "-" + NormalizeName(name, "World"));
+    }
+
+    private static string NormalizeName(string name, string fallback)
+    {
+        var safe = new string((name ?? "").Select(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-' ? c : '_')
+            .Take(60).ToArray()).Trim();
+        return safe.Length == 0 ? fallback : safe;
+    }
+
+    private static string FileName(ScopeProfile profile) => profile.ScopeAnchorEntityId + ".xml";
+
+    private static string WorldHash(ScopeProfile profile)
     {
         using var sha = SHA256.Create();
-        var world = BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(profile.WorldId ?? ""))).Replace("-", "").Substring(0, 16);
-        return profile.ScopeAnchorEntityId + "-" + world + ".xml";
+        return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(profile.WorldId ?? ""))).Replace("-", "").Substring(0, 16);
     }
 
     private static void Write(string path, LocalProfileDocument value)
@@ -143,7 +145,13 @@ public sealed class LocalProfileStore
         Save();
         var backup = Path.Combine(Path.GetDirectoryName(directory), "Backups", "before-adoption-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(backup);
-        foreach (var file in files.Values) File.Copy(file, Path.Combine(backup, Path.GetFileName(file)));
+        foreach (var profile in document.Profiles)
+        {
+            var worldBackup = Path.Combine(backup, Path.GetFileName(WorldDirectory(profile)));
+            Directory.CreateDirectory(worldBackup);
+            File.Copy(files[(profile.WorldId, profile.ScopeAnchorEntityId)], Path.Combine(worldBackup,
+                Path.GetFileName(files[(profile.WorldId, profile.ScopeAnchorEntityId)])));
+        }
     }
 
     private LocalProfileDocument Load()
@@ -152,7 +160,7 @@ public sealed class LocalProfileStore
         try
         {
             var serializer = new XmlSerializer(typeof(LocalProfileDocument));
-            foreach (var file in Directory.Exists(directory) ? Directory.GetFiles(directory, "*.xml") : Array.Empty<string>())
+            foreach (var file in Directory.Exists(directory) ? Directory.GetFiles(directory, "*.xml", SearchOption.AllDirectories) : Array.Empty<string>())
             {
                 using var reader = File.OpenText(file);
                 var grid = (LocalProfileDocument)serializer.Deserialize(reader);
@@ -165,17 +173,6 @@ public sealed class LocalProfileStore
                 loaded.DisplayOrders.AddRange((grid.DisplayOrders ?? new()).Where(order => order != null &&
                     order.WorldId == profile.WorldId && order.Anchor == profile.ScopeAnchorEntityId));
             }
-            if (File.Exists(path))
-            {
-                using var reader = File.OpenText(path);
-                var legacy = (LocalProfileDocument)serializer.Deserialize(reader);
-                foreach (var profile in legacy.Profiles.Where(profile => !files.ContainsKey((profile.WorldId, profile.ScopeAnchorEntityId))))
-                {
-                    loaded.Profiles.Add(profile);
-                    loaded.DisplayOrders.AddRange((legacy.DisplayOrders ?? new()).Where(order => order != null &&
-                        order.WorldId == profile.WorldId && order.Anchor == profile.ScopeAnchorEntityId));
-                }
-            }
             loaded.DisplayOrders ??= new();
             loaded.DisplayOrders.RemoveAll(order => order == null);
             foreach (var order in loaded.DisplayOrders)
@@ -187,7 +184,7 @@ public sealed class LocalProfileStore
         catch (Exception exception)
         {
             loadFailed = true;
-            log.Error(exception, "Failed to load local profile store: {0}", path);
+            log.Error(exception, "Failed to load local profile store: {0}", directory);
             return new LocalProfileDocument();
         }
     }

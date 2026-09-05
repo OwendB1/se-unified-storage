@@ -32,6 +32,25 @@ public readonly struct DistributionAllocationCore
 
 public static class DistributionPlannerCore
 {
+    public static IReadOnlyList<DistributionAllocationCore> PreferWholeUnits(
+        long amount, IEnumerable<DistributionCandidateCore> candidates, long quantum, bool even)
+    {
+        var inputs = candidates.ToArray();
+        var whole = even ? Even(amount, inputs, 1_000_000L) : Greedy(amount, inputs, 1_000_000L);
+        if (quantum >= 1_000_000L) return whole;
+        var allocated = whole.ToDictionary(entry => entry.Key, entry => entry.Amount);
+        var remainder = amount - whole.Sum(entry => entry.Amount);
+        // Preserve explicitly requested fractions; prefer adding the tail to an
+        // existing allocation instead of fragmenting every destination's share.
+        var tail = Greedy(remainder, inputs.OrderByDescending(candidate => allocated.ContainsKey(candidate.Key))
+            .Select(candidate => new DistributionCandidateCore(candidate.Key, candidate.Current,
+                candidate.Capacity - (allocated.TryGetValue(candidate.Key, out var used) ? used : 0))), quantum);
+        foreach (var entry in tail)
+            allocated[entry.Key] = (allocated.TryGetValue(entry.Key, out var used) ? used : 0) + entry.Amount;
+        return inputs.Where(candidate => allocated.ContainsKey(candidate.Key))
+            .Select(candidate => new DistributionAllocationCore(candidate.Key, allocated[candidate.Key])).ToArray();
+    }
+
     public static IReadOnlyList<DistributionAllocationCore> Greedy(
         long amount,
         IEnumerable<DistributionCandidateCore> orderedCandidates,

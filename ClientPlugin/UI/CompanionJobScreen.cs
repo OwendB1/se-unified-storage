@@ -39,7 +39,7 @@ internal sealed class CompanionJobScreen : UnifiedStorageScreen
                 pending.Remove(job);
                 if (!job.closed) Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Unified Storage: " + job.statusText, 3500);
             }
-            else if (job.finished || job.outcomeUnknown || job.elapsed.Elapsed.TotalSeconds >= 5)
+            else if (job.finished || job.outcomeUnknown || job.elapsed.Elapsed.TotalSeconds >= 2)
             {
                 pending.Remove(job);
                 MyGuiSandbox.AddScreen(job);

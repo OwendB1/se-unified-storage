@@ -7,7 +7,7 @@ namespace ClientPlugin.Settings.Elements;
 internal class Control
 {
     // FIXME: This is global and not determined automatically
-    public static readonly float LabelMinWidth = 0.18f;
+    public static readonly float LabelMinWidth = 0.30f;
 
     public readonly MyGuiControlBase GuiControl;
     public readonly float? FixedWidth;

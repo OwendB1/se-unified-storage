@@ -167,11 +167,9 @@ public static class TransferPlanFactory
             {
                 var current = byInventory.TryGetValue(member.Inventory, out var amount) ? amount : MyFixedPoint.Zero;
                 var target = targets.TryGetValue(member.Inventory, out amount) ? amount : MyFixedPoint.Zero;
-                if (target > current)
-                    deficits.Add(new DestinationAllocation(member, target - current));
-                var delta = target - current;
-                virtualVolume[member.Inventory] += delta * itemVolume;
-                virtualMass[member.Inventory] += delta * itemMass;
+                var deficit = MyFixedPoint.Floor(MyFixedPoint.Max(target - current, MyFixedPoint.Zero));
+                if (deficit > MyFixedPoint.Zero)
+                    deficits.Add(new DestinationAllocation(member, deficit));
             }
 
             var surplusSources = new List<InventoryStackReference>();
@@ -181,12 +179,13 @@ public static class TransferPlanFactory
                 var target = targets.TryGetValue(inventoryGroup.Key, out var targetAmount)
                     ? targetAmount
                     : MyFixedPoint.Zero;
-                var surplus = MyFixedPoint.Max(current - target, MyFixedPoint.Zero);
+                var surplus = MyFixedPoint.Floor(MyFixedPoint.Max(current - target, MyFixedPoint.Zero));
                 foreach (var source in inventoryGroup.OrderByDescending(candidate => candidate.SnapshotAmount.RawValue))
                 {
                     if (surplus <= MyFixedPoint.Zero)
                         break;
-                    var available = MyFixedPoint.Min(source.SnapshotAmount, surplus);
+                    var available = MyFixedPoint.Floor(MyFixedPoint.Min(source.SnapshotAmount, surplus));
+                    if (available <= MyFixedPoint.Zero) continue;
                     var adjusted = source;
                     adjusted = new InventoryStackReferenceWithAmount(source, available).ToReference();
                     surplusSources.Add(adjusted);
@@ -196,7 +195,18 @@ public static class TransferPlanFactory
             var requested = deficits.Aggregate(MyFixedPoint.Zero, (sum, deficit) => sum + deficit.Amount);
             var plan = TransferPlanner.Pair(itemId, requested, surplusSources, deficits);
             if (plan.PlannedAmount > MyFixedPoint.Zero)
-                plans.Add(plan);
+            {
+                // Only reserve space for transfers actually planned, not tolerated
+                // fractional differences or unmatched rounded deficits.
+                foreach (var allocation in plan.Allocations)
+                {
+                    virtualVolume[allocation.Source.Inventory] -= allocation.Amount * itemVolume;
+                    virtualMass[allocation.Source.Inventory] -= allocation.Amount * itemMass;
+                    virtualVolume[allocation.DestinationInventory] += allocation.Amount * itemVolume;
+                    virtualMass[allocation.DestinationInventory] += allocation.Amount * itemMass;
+                }
+                plans.Add(new TransferPlan(itemId, plan.PlannedAmount, plan.Allocations));
+            }
         }
         return plans;
     }

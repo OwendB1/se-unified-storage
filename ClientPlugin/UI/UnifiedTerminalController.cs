@@ -704,8 +704,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             var mechanical = ProjectionViewBuilder.Build(session, projection, InventoryScopeMode.MechanicalGroups)[0];
             var accessed = session.Scope.Grids.Contains(accessedGrid);
             var gridId = session.Scope.Grids.Min(grid => grid.EntityId);
-            var name = session.Scope.AnchorGrid.DisplayName;
-            var duplicate = sessions.Count(other => other.Scope.AnchorGrid.DisplayName == name) > 1;
+            var name = session.Scope.DisplayName;
+            var duplicate = sessions.Count(other => other.Scope.DisplayName == name) > 1;
             var shipNumber = sessions.OrderBy(other => other.Scope.Grids.Min(grid => grid.EntityId)).ToList().IndexOf(session) + 1;
             void Add(InventoryProjectionView view, string detail, bool network = false)
             {
@@ -760,11 +760,11 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             pane.ScopeChoicesSignature = signature;
             pane.ScopeSelector.ClearItems();
             for (var index = 0; index < choices.Count; index++)
-                pane.ScopeSelector.AddTreeItem(index, choices[index].Label, toolTip: choices[index].Tooltip);
+                pane.ScopeSelector.AddTreeItem(index, choices[index].Label, toolTip: UnifiedStorageHelp.Wrap(choices[index].Tooltip));
         }
         pane.ScopeSelector.SelectItemByKey(selected, sendEvent: false);
         var result = choices.ElementAtOrDefault(selected);
-        pane.ScopeSelector.SetToolTip(result?.Tooltip ?? "No available inventories");
+        pane.ScopeSelector.SetToolTip(UnifiedStorageHelp.Wrap(result?.Tooltip ?? "No available inventories"));
         ApplyPaneLayout(pane);
         return result;
     }
@@ -1052,7 +1052,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                 : $"Unified Storage: {complete}/{rebalanceOperations.Count} balanced. " +
                   rebalanceOperations.First(item => item.Status != TransferOperationStatus.Complete).Message, 5000);
         }
-        else if (rebalanceElapsed.Elapsed.TotalSeconds >= 5)
+        else if (rebalanceElapsed.Elapsed.TotalSeconds >= 2)
         {
             rebalanceFeedbackShown = true;
             MyGuiSandbox.AddScreen(new RebalanceJobScreen(rebalanceOperations.ToArray(), rebalanceElapsed));

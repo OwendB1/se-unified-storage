@@ -4,6 +4,38 @@ WeaponCoreCompatibilityChecks.Run();
 ListSelectionChecks.Run();
 InventoryGroupChecks.Run();
 
+var roundShares = DistributionPlannerCore.PreferWholeUnits(10_000_000,
+    Enumerable.Range(0, 3).Select(i => new DistributionCandidateCore(i, 0, 20_000_000)), 1, true);
+True(roundShares.Select(a => a.Amount).SequenceEqual(new long[] { 4_000_000, 3_000_000, 3_000_000 }),
+    "even fractional resources prefer whole shares");
+var fractionalShares = DistributionPlannerCore.PreferWholeUnits(10_500_000,
+    Enumerable.Range(0, 3).Select(i => new DistributionCandidateCore(i, 0, 20_000_000)), 1, true);
+Equal(10_500_000, fractionalShares.Sum(a => a.Amount), "explicit fractional amount is conserved");
+Equal(1, fractionalShares.Count(a => a.Amount % 1_000_000 != 0), "only one share needs a fractional tail");
+var tightShares = DistributionPlannerCore.PreferWholeUnits(1_000_000, new[]
+{
+    new DistributionCandidateCore(0, 0, 400_000), new DistributionCandidateCore(1, 0, 600_000)
+}, 1, false);
+Equal(1_000_000, tightShares.Sum(a => a.Amount), "fractional capacity remains usable for explicit transfers");
+
+var rateBudget = new OperationRateBudget();
+True(rateBudget.Available(0, 1), "first transfer can start immediately");
+rateBudget.Consume();
+True(!rateBudget.Available(0.5, 1), "one per second waits across frames");
+True(!rateBudget.Available(0.999, 1), "one per second does not send early");
+True(rateBudget.Available(1, 1), "one per second refills at the boundary");
+rateBudget.Consume();
+True(rateBudget.Available(120, 1), "idle budget allows the next transfer");
+rateBudget.Consume();
+True(!rateBudget.Available(120, 1), "idle time cannot accumulate a burst");
+True(rateBudget.Available(121, 480), "higher budgets refill");
+for (var i = 0; i < 8; i++)
+{
+    True(rateBudget.Available(121, 480), "validation budget permits a bounded frame batch");
+    rateBudget.Consume();
+}
+True(!rateBudget.Available(121, 480), "validation burst is capped at one nominal frame");
+
 var crafting = ClientPlugin.Automation.AutomationPlannerCore.Production(new[]
 {
     new ClientPlugin.Automation.ProductionTargetCore

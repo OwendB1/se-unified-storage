@@ -34,11 +34,12 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
     private const float SectionHeaderHeight = 0.031f;
     private const float ExpandedSectionHeaderHeight = 0.058f;
     private static readonly float SectionGap = 12f / MyGuiConstants.GUI_OPTIMAL_SIZE.Y;
-    private const float RoleHeaderHeight = 0.025f;
+    private const float RoleHeaderHeight = 0.047f;
     private const float FooterHeight = 0.033f;
     private readonly List<MyGuiControlGrid> grids = new();
     private readonly List<InventoryRoleProjection[]> sectionBindings = new();
     private readonly List<MyGuiControlButton> rebalanceButtons = new();
+    private readonly List<MyGuiControlLabel> capacityLabels = new();
     private VisibleRole[] visibleRoles;
     private string memberLayout;
     private readonly MyGuiControlLabel totals;
@@ -170,6 +171,20 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                     originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
                     isAutoEllipsisEnabled: true,
                     maxWidth: 0.37f));
+                var capacity = new MyGuiControlLabel(
+                    new Vector2(topLeft.X + 0.004f, y + 0.022f),
+                    textScale: 0.52f,
+                    originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
+                    isAutoEllipsisEnabled: true,
+                    maxWidth: 0.37f)
+                {
+                    Name = "UnifiedCapacity",
+                    Size = new Vector2(0.37f, 0.022f)
+                };
+                capacity.SetToolTip(UnifiedStorageHelp.Wrap(
+                    "Physical space used by all items in these inventories, including filtered and reserved items. Item constraints and conveyor access can still limit deposits. Shared inventories count in each view that includes them."));
+                capacityLabels.Add(capacity);
+                Elements.Add(capacity);
                 y += RoleHeaderHeight;
                 var grid = CreateGrid(topLeft.X, y, entry, getFlags, itemDragged, itemDoubleClicked);
                 grids.Add(grid);
@@ -189,6 +204,18 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private void UpdateTotals()
     {
+        for (var i = 0; i < capacityLabels.Count; i++)
+        {
+            var inventories = visibleRoles[i].Role.Members.Select(member => member.Inventory).Distinct().ToArray();
+            var used = inventories.Sum(inventory => (double)inventory.CurrentVolume) * 1000d;
+            var maximum = inventories.Sum(inventory => (double)inventory.MaxVolume) * 1000d;
+            var unlimited = inventories.Any(inventory => inventory.MaxVolume == MyFixedPoint.MaxValue);
+            var full = !unlimited && used >= maximum;
+            capacityLabels[i].Text = unlimited
+                ? $"Space: {used:N0} L / Unlimited"
+                : $"Space: {used:N0} / {maximum:N0} L  ({(maximum > 0 ? used / maximum * 100 : 100):N0}%){(full ? " · Full" : "")}";
+            capacityLabels[i].ColorMask = full ? Color.Orange : Color.White;
+        }
         var uniqueInventories = Projection.Roles.SelectMany(role => role.Members)
             .Select(member => member.Inventory).Distinct().ToArray();
         var mass = uniqueInventories.Aggregate(MyFixedPoint.Zero,

@@ -25,6 +25,10 @@ public sealed class MechanicalInventoryScope
 
     public MyEntity InteractedEntity { get; }
     public MyCubeGrid AnchorGrid { get; }
+    public string DisplayName => Grids
+        .OrderByDescending(grid => (double)grid.BlocksCount * grid.GridSize * grid.GridSize * grid.GridSize)
+        .ThenBy(grid => grid.EntityId)
+        .FirstOrDefault()?.DisplayName ?? AnchorGrid.DisplayName;
     public IReadOnlyList<MyCubeGrid> Grids { get; }
     public IReadOnlyList<InventoryDescriptor> Inventories { get; }
 }
