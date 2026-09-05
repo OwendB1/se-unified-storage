@@ -15,6 +15,7 @@ public enum InventoryScopeMode
 public sealed class Config : INotifyPropertyChanged
 {
     private bool unifiedByDefault = true;
+    private bool forceClientOnly;
     private DistributionPolicy defaultPolicy = DistributionPolicy.ExistingStackFirst;
     private InventoryScopeMode scopeMode = InventoryScopeMode.MechanicalGroups;
     private int transfersPerFrame = 4;
@@ -44,6 +45,14 @@ public sealed class Config : INotifyPropertyChanged
     {
         get => scopeMode;
         set => SetField(ref scopeMode, value);
+    }
+
+    [Separator("Privacy")]
+    [Checkbox(description: "Disable all companion discovery and messages, including on join. Uses vanilla inventory requests only. Existing server jobs are not stopped; local maintenance may conflict with server automation.")]
+    public bool ForceClientOnly
+    {
+        get => forceClientOnly;
+        set => SetField(ref forceClientOnly, value);
     }
 
     [Separator("Work budgets")]

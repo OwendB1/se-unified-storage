@@ -33,7 +33,10 @@ public static class DrainRefineryEngine
                 if (item.Content.GetObjectId().TypeId != typeof(MyObjectBuilder_Ingot))
                     continue;
                 var plan = TransferPlanFactory.Deposit(descriptor.Inventory, item, item.Amount,
-                    cargo, profile.Policy, getFlags);
+                    cargo, profile.Policy, getFlags, allowFallbacks: false);
+                // One bounded pass over the click-time contents. Fallback allocations
+                // can revisit this output after production masks part of a transfer's
+                // observed source decrease, chasing newly produced trace amounts.
                 plan.CanContinue = CanDrain;
                 plan.GuardFailureMessage = "refinery output was removed or excluded";
                 if (plan.PlannedAmount > 0)

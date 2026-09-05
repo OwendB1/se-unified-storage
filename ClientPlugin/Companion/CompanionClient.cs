@@ -17,6 +17,8 @@ public sealed partial class CompanionClient : IDisposable
     private MySession session;
     private IMyMultiplayer transport;
     private Guid epoch;
+    private Guid helloId;
+    private ulong serverId;
     private Guid pendingId;
     private Action<CompanionMessage> pending;
     private long pendingUntil;
@@ -28,13 +30,14 @@ public sealed partial class CompanionClient : IDisposable
     private MySession ownershipSession;
     private long discoveryStarted;
     public CompanionCapabilities Capabilities { get; private set; }
-    public bool Available => (Capabilities & CompanionCapabilities.SharedProfiles) != 0;
-    public bool Supports(CompanionCapabilities capability) => (Capabilities & capability) == capability;
+    public bool Available => Supports(CompanionCapabilities.SharedProfiles);
+    public bool Supports(CompanionCapabilities capability) => !Config.Current.ForceClientOnly && (Capabilities & capability) == capability;
     public bool Busy => pending != null || profileSequence;
     public event Action<CompanionMessage> ProfileChanged;
 
     public bool AllowsLocal(MyCubeGrid grid, CompanionCapabilities mode)
     {
+        if (Config.Current.ForceClientOnly) return true;
         if (Sync.IsServer || grid == null) return true;
         // Give discovery time before starting remembered maintainers on a newly joined server.
         if (!coordinationSeen) return discoveryStarted != 0 &&
@@ -45,6 +48,11 @@ public sealed partial class CompanionClient : IDisposable
     }
 
     public CompanionClient() => MySession.OnUnloading += Reset;
+
+    public void ApplyPrivacySetting()
+    {
+        if (Config.Current.ForceClientOnly) Reset();
+    }
 
     public void Update()
     {
@@ -58,14 +66,20 @@ public sealed partial class CompanionClient : IDisposable
 
     private void UpdateCore()
     {
+        if (Config.Current.ForceClientOnly)
+        {
+            if (transport != null || session != null || pending != null || profileSequence) Reset();
+            return;
+        }
         var current = MySession.Static;
         if (current == null || !current.Ready || Sync.IsServer) return;
-        if (!ReferenceEquals(session, current))
+        if (!ReferenceEquals(session, current) || serverId != Sync.ServerId)
         {
             Reset(); session = current;
             discoveryStarted = Stopwatch.GetTimestamp();
             if (!ReferenceEquals(ownershipSession, current)) { coordinationSeen = false; ownershipSession = current; }
             transport = MyModAPIHelper.MyMultiplayer.Static;
+            serverId = Sync.ServerId;
             transport.RegisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
         }
         var now = Stopwatch.GetTimestamp();
@@ -74,9 +88,11 @@ public sealed partial class CompanionClient : IDisposable
             byte[] bytes;
             lock (inbound) { if (inbound.Count == 0) break; bytes = inbound.Dequeue(); }
             if (!CompanionProtocol.TryDecode(bytes, out var message)) continue;
-            if (message.Kind == MessageKind.HelloAck && message.Epoch != Guid.Empty &&
+            if (message.Kind == MessageKind.HelloAck && helloId != Guid.Empty && message.RequestId == helloId &&
+                now <= nextHello && message.Epoch != Guid.Empty &&
                 message.DeadlineUtcTicks > 0 && message.DeadlineUtcTicks < DateTime.MaxValue.Ticks - TimeSpan.TicksPerDay)
             {
+                helloId = Guid.Empty;
                 if (epoch != Guid.Empty && epoch != message.Epoch) FinishUnknown();
                 epoch = message.Epoch; Capabilities = message.Capabilities;
                 // Older companions would ignore Rules in selections. Keep coordination/status/cancel,
@@ -94,9 +110,9 @@ public sealed partial class CompanionClient : IDisposable
                 }
                 serverUtc = message.DeadlineUtcTicks; lastHello = now;
             }
-            else if (message.Kind == MessageKind.Result && message.Epoch == epoch && message.RequestId == pendingId)
+            else if (message.Kind == MessageKind.Result && epoch != Guid.Empty && pendingId != Guid.Empty && message.Epoch == epoch && message.RequestId == pendingId)
                 Finish(message);
-            else if (message.Kind == MessageKind.ProfileChanged && message.Epoch == epoch && message.Body.Length == 0)
+            else if (message.Kind == MessageKind.ProfileChanged && epoch != Guid.Empty && message.Epoch == epoch && message.Body.Length == 0)
                 ProfileChanged?.Invoke(message);
         }
         if (pending != null && now >= pendingUntil) FinishUnknown();
@@ -105,13 +121,16 @@ public sealed partial class CompanionClient : IDisposable
         if (lastHello != 0 && now - lastHello > Stopwatch.Frequency * 45) Capabilities = CompanionCapabilities.None;
         if (now < nextHello) return;
         nextHello = now + Stopwatch.Frequency * 20;
+        helloId = Guid.NewGuid();
         transport.SendMessageToServer(CompanionProtocol.Channel, CompanionProtocol.Encode(new CompanionMessage
-        { Kind = MessageKind.Hello, RequestId = Guid.NewGuid() }));
+        { Kind = MessageKind.Hello, RequestId = helloId }));
     }
 
     private void Receive(ushort channel, byte[] bytes, ulong sender, bool fromServer)
     {
-        if (!fromServer || bytes == null || bytes.Length < CompanionProtocol.HeaderBytes || bytes.Length > CompanionProtocol.MaxPacketBytes) return;
+        if (Config.Current.ForceClientOnly || transport == null || channel != CompanionProtocol.Channel ||
+            !fromServer || serverId == 0 || sender != serverId || sender != Sync.ServerId ||
+            bytes == null || bytes.Length < CompanionProtocol.HeaderBytes || bytes.Length > CompanionProtocol.MaxPacketBytes) return;
         lock (inbound) { if (inbound.Count < 16) inbound.Enqueue((byte[])bytes.Clone()); }
     }
 
@@ -151,6 +170,7 @@ public sealed partial class CompanionClient : IDisposable
     {
         transport?.UnregisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
         transport = null; session = null; epoch = Guid.Empty;
+        serverId = 0; helloId = Guid.Empty;
         Capabilities = CompanionCapabilities.None; nextHello = lastHello = 0;
         ownership = null;
         if (MySession.Static == null || !ReferenceEquals(MySession.Static, ownershipSession)) coordinationSeen = false;

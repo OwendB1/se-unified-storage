@@ -139,6 +139,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     private bool dirty;
     private bool disposed;
     private readonly List<TransferOperationResult> rebalanceOperations = new();
+    private readonly Stopwatch rebalanceElapsed = new();
+    private bool rebalanceFeedbackShown;
 
     public UnifiedTerminalController(object vanillaController)
     {
@@ -160,6 +162,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         right.Unified = unifiedRight;
         BindPane(left, "Left");
         BindPane(right, "Right");
+        // Never reuse vanilla-owned grids: Close leaves their input delegates attached.
+        left.List.InitControls(Array.Empty<MyGuiControlBase>());
+        right.List.InitControls(Array.Empty<MyGuiControlBase>());
         left.ShowGrid = false;
         right.ShowGrid = true;
         left.TypeGroup.SelectByIndex(0);
@@ -225,6 +230,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     {
         if (!Active)
             return;
+        UpdateRebalanceFeedback();
         if (DateTime.UtcNow >= nextScopePollUtc)
         {
             nextScopePollUtc = DateTime.UtcNow.AddSeconds(1);
@@ -662,6 +668,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                 grid.ItemDragged += (sender, args) => StartDragging(sender, args);
                 grid.ItemDoubleClicked += (sender, args) => RealItemDoubleClicked(pane, sender, args);
                 grid.ItemSelected += (sender, _) => pane.FocusedReal = sender;
+                grid.FocusChanged += (_, focused) => { if (focused) pane.FocusedReal = grid; };
                 grid.ItemControllerAction = (sender, index, action, pressed) =>
                     GamepadTransfer(pane, sender, index, action, pressed);
                 grid.GamepadHelpText = "A: transfer amount";
@@ -711,7 +718,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                     View = view,
                     Label = view == mechanical
                         ? name + (duplicate ? $" · Ship {shipNumber}" : "") + (accessed ? " [Local]" : "")
-                        : detail + (atHatch ? " [Accessed]" : ""),
+                        : detail + (network ? $" ({members.Length} blocks)" : "") + (atHatch ? " [Accessed]" : ""),
                     Tooltip = $"{name}\nConstruct ID: {gridId}\n{detail}: {members.Length} inventory blocks\n" +
                               (atHatch ? "Contains the accessed hatch.\n" : "") +
                               "Network grouping is not a transfer guarantee: access, sorters and tube sizes still apply.",
@@ -1025,12 +1032,31 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             operation.Quiet = true;
             rebalanceOperations.Add(operation);
         }
-        if (rebalanceOperations.Count > 0)
-            MyGuiSandbox.AddScreen(new RebalanceJobScreen(rebalanceOperations.ToArray()));
-        else
+        rebalanceFeedbackShown = false;
+        rebalanceElapsed.Restart();
+        if (rebalanceOperations.Count == 0)
             MyAPIGateway.Utilities?.ShowNotification("Unified Storage: already balanced; no transfers needed.", 3000);
         if (sortRefineries && plans.Length == 0)
             SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members));
+    }
+
+    private void UpdateRebalanceFeedback()
+    {
+        if (rebalanceFeedbackShown || rebalanceOperations.Count == 0) return;
+        if (rebalanceOperations.All(item => item.Status is not (TransferOperationStatus.Queued or TransferOperationStatus.Running)))
+        {
+            rebalanceFeedbackShown = true;
+            var complete = rebalanceOperations.Count(item => item.Status == TransferOperationStatus.Complete);
+            MyAPIGateway.Utilities?.ShowNotification(complete == rebalanceOperations.Count
+                ? "Unified Storage: rebalance complete."
+                : $"Unified Storage: {complete}/{rebalanceOperations.Count} balanced. " +
+                  rebalanceOperations.First(item => item.Status != TransferOperationStatus.Complete).Message, 5000);
+        }
+        else if (rebalanceElapsed.Elapsed.TotalSeconds >= 5)
+        {
+            rebalanceFeedbackShown = true;
+            MyGuiSandbox.AddScreen(new RebalanceJobScreen(rebalanceOperations.ToArray(), rebalanceElapsed));
+        }
     }
 
     private void ConfigureSection(

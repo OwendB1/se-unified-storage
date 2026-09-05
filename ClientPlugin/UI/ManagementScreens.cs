@@ -169,8 +169,7 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
         {
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
         };
-        checkbox.SetToolTip(UnifiedStorageHelp.Wrap(UnifiedStorageHelp.Field(text) +
-            " Applies to all selected rows. A dash means mixed values; click to clear all, then click again to enable all. Apply saves the batch."));
+        checkbox.SetToolTip(UnifiedStorageHelp.Field(text));
         checkbox.ShowTooltipWhenDisabled = true;
         Controls.Add(checkbox);
         Controls.Add(Label(text, position + new Vector2(0.035f, 0f)));
@@ -341,7 +340,9 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         Controls.Add(Label("Blueprint", new Vector2(-0.10f, 0.21f)));
         blueprint = new MyGuiControlCombobox(
             new Vector2(0.01f, 0.21f), new Vector2(0.35f, 0.04f),
-            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER);
+            openAreaItemsCount: 8,
+            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
+            isAutoscaleEnabled: true, isAutoEllipsisEnabled: true, minTextScale: 0.55f);
         blueprint.Name = "ComponentBlueprint";
         blueprint.SetToolTip(UnifiedStorageHelp.Field("Blueprint"));
         blueprint.ShowTooltipWhenDisabled = true;
@@ -395,8 +396,15 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         saveTarget.SetToolTip($"Save the entered quantity for {selected.Length} selected components. With multiple rows selected, each recipe is preserved.");
         blueprint.SetToolTip(selected.Length == 1 ? UnifiedStorageHelp.Field("Blueprint") : "Multiple components selected: recipes remain unchanged. Select one component to edit its recipe.");
         for (var index = 0; index < status.BlueprintChoices.Count; index++)
-            blueprint.AddItem(index, status.BlueprintChoices[index].DisplayNameText ??
-                status.BlueprintChoices[index].Id.SubtypeName);
+        {
+            var recipe = status.BlueprintChoices[index];
+            var description = recipe.DisplayNameText ?? recipe.Id.SubtypeName;
+            // Mods may put an entire recipe description in DisplayNameText. Native
+            // combo rows have a fixed height and do not clip multiline item labels.
+            var name = DefinitionLabels.SingleLine(description, recipe.Id.SubtypeName);
+            blueprint.AddItem(index, name,
+                toolTip: UnifiedStorageHelp.Wrap(description + "\n" + recipe.Id));
+        }
         if (status.Blueprint != null)
         {
             var selectedBlueprint = -1;
@@ -722,7 +730,7 @@ internal sealed class LoadoutRuleEditor : InventoryRuleEditor
         // Retain an unavailable saved item for repair, not an incompatible choice from another target/role.
         if (restoringSavedItem && MyDefinitionId.TryParse(previous, out var saved) && !items.Contains(saved)) items.Add(saved);
         item.ClearItems();
-        for (var i = 0; i < items.Count; i++) item.AddItem(i, Display(items[i]));
+        for (var i = 0; i < items.Count; i++) item.AddItem(i, Display(items[i]), toolTip: items[i].ToString());
         if (items.Count > 0) item.SelectItemByIndex(Math.Max(0, items.FindIndex(id => id.ToString() == previous)));
     }
     private void Apply()
@@ -747,7 +755,8 @@ internal sealed class LoadoutRuleEditor : InventoryRuleEditor
         };
         save(record); CloseScreen();
     }
-    private static string Display(MyDefinitionId id) => MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName;
+    private static string Display(MyDefinitionId id) => DefinitionLabels.Item(
+        MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText, id.TypeId.ToString(), id.SubtypeName);
 }
 
 internal sealed class RefineryPriorityScreen : UnifiedStorageScreen

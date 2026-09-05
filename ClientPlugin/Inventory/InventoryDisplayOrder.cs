@@ -17,6 +17,7 @@ public sealed class DisplayOrderRecord
     public string View { get; set; }
     public string Section { get; set; }
     public List<string> Keys { get; set; } = new();
+    public bool CustomOrder { get; set; }
 }
 
 // Presentation preferences stay local and never change physical inventories or shared profiles.
@@ -62,8 +63,13 @@ internal static class InventoryDisplayOrder
                 order.Keys.RemoveAll(key => !present.Contains(key) && excess-- > 0);
             }
             var ranks = order.Keys.Select((key, index) => (key, index)).ToDictionary(pair => pair.key, pair => pair.index);
+            // Stable within each category; returning items keep their remembered position.
+            // A deliberate drag opts this section into a fully custom layout.
+            var sorted = order.CustomOrder ? stacks.OrderBy(stack => ranks[stack.DisplayKey]) :
+                stacks.OrderBy(stack => Category(stack.DefinitionId.TypeId.ToString()), StringComparer.Ordinal)
+                    .ThenBy(stack => ranks[stack.DisplayKey]);
             return new InventoryRoleProjection(role.Section, role.Role, role.Members,
-                stacks.OrderBy(stack => ranks[stack.DisplayKey]).ToArray(), role.CurrentMass,
+                sorted.ToArray(), role.CurrentMass,
                 role.CurrentVolume, role.MaxVolume, role.Group, role.Accepts);
         }).ToArray();
         return new InventoryProjection(projection.Scope, roles);
@@ -75,11 +81,31 @@ internal static class InventoryDisplayOrder
         if (source == target || source?.DisplayKey == null) return;
         var order = Get(profile, view, role);
         if (!order.Keys.Contains(source.DisplayKey)) return;
+        if (!order.CustomOrder)
+        {
+            var visible = role.Stacks.Select(stack => stack.DisplayKey).ToArray();
+            var present = new HashSet<string>(visible, StringComparer.Ordinal);
+            order.Keys = visible.Concat(order.Keys.Where(key => !present.Contains(key))).ToList();
+            order.CustomOrder = true;
+        }
         var index = target?.DisplayKey == null ? order.Keys.Count : order.Keys.IndexOf(target.DisplayKey);
         order.Keys.Remove(source.DisplayKey);
         order.Keys.Insert(index < 0 ? order.Keys.Count : Math.Min(index, order.Keys.Count), source.DisplayKey);
         Plugin.Instance.Profiles.DisplayOrderChanged();
     }
+
+    private static string Category(string type) => type switch
+    {
+        "MyObjectBuilder_Ore" => "01",
+        "MyObjectBuilder_Ingot" => "02",
+        "MyObjectBuilder_Component" => "03",
+        "MyObjectBuilder_AmmoMagazine" => "04",
+        "MyObjectBuilder_PhysicalGunObject" => "05",
+        "MyObjectBuilder_GasContainerObject" or "MyObjectBuilder_OxygenContainerObject" => "06",
+        "MyObjectBuilder_ConsumableItem" => "07",
+        "MyObjectBuilder_Datapad" => "08",
+        _ => "09:" + type
+    };
 
     private static DisplayOrderRecord Get(ScopeProfile profile, string view, InventoryRoleProjection role)
     {

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using Sandbox.Graphics.GUI;
 using Shared.Companion;
 using VRageMath;
@@ -8,6 +10,8 @@ namespace ClientPlugin.UI;
 
 internal sealed class CompanionJobScreen : UnifiedStorageScreen
 {
+    private static readonly List<CompanionJobScreen> pending = new();
+    public static bool HasPending => pending.Any(job => !job.finished && !job.closed);
     private readonly long anchor, terminal;
     private readonly Guid id;
     private readonly Func<bool> canContinue;
@@ -16,34 +20,74 @@ internal sealed class CompanionJobScreen : UnifiedStorageScreen
     private bool finished, closed, cancelRequested, closingRequested, outcomeUnknown;
     private MyGuiControlLabel status, details, duration;
     private MyGuiControlButton cancel;
-    public CompanionJobScreen(long anchor, long terminal, Guid id, Func<bool> canContinue = null) : base("Server utility job")
+    private string statusText = "Waiting for job status...", detailText = "";
+    private bool succeeded;
+    private CompanionJobScreen(long anchor, long terminal, Guid id, Func<bool> canContinue)
+        : base("Server utility job", new Vector2(0.76f, 0.36f))
     { this.anchor = anchor; this.terminal = terminal; this.id = id; this.canContinue = canContinue; }
+
+    public static void Start(long anchor, long terminal, Guid id, Func<bool> canContinue) =>
+        pending.Add(new CompanionJobScreen(anchor, terminal, id, canContinue));
+
+    public static void UpdatePending()
+    {
+        foreach (var job in pending.ToArray())
+        {
+            job.Poll();
+            if (job.closed || job.finished && job.succeeded)
+            {
+                pending.Remove(job);
+                if (!job.closed) Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Unified Storage: " + job.statusText, 3500);
+            }
+            else if (job.finished || job.outcomeUnknown || job.elapsed.Elapsed.TotalSeconds >= 5)
+            {
+                pending.Remove(job);
+                MyGuiSandbox.AddScreen(job);
+            }
+        }
+    }
+
+    public static void ClearPending()
+    {
+        foreach (var job in pending.ToArray()) job.CloseScreen(true);
+        pending.Clear();
+    }
     protected override void CreateControls()
     {
-        Controls.Add(Label("Closing this window requests cancellation of remaining work.", new Vector2(-0.36f, -0.25f)));
-        Controls.Add(Label("Cancel stops future steps; it does not roll back accepted transfers.", new Vector2(-0.36f, -0.18f)));
-        status = Label("Waiting for job status...", new Vector2(-0.36f, -0.04f)); Controls.Add(status);
-        details = Label("", new Vector2(-0.36f, 0.05f)); details.TextScale = 0.55f; Controls.Add(details);
-        details.IsAutoEllipsisEnabled = true; details.Size = new Vector2(0.72f, 0.04f);
+        var note = Label("Closing stops remaining work; completed moves are kept.", new Vector2(-0.33f, -0.09f));
+        note.TextScale = 0.55f; Controls.Add(note);
+        status = Label(statusText, new Vector2(-0.33f, -0.04f)); Controls.Add(status);
+        details = Label(detailText, new Vector2(-0.33f, 0.005f)); details.TextScale = 0.55f; Controls.Add(details);
+        details.IsAutoEllipsisEnabled = true; details.Size = new Vector2(0.66f, 0.03f);
         status.TextScale = 0.6f;
-        status.IsAutoEllipsisEnabled = true; status.Size = new Vector2(0.72f, 0.04f);
-        duration = Label("", new Vector2(-0.36f, 0.13f)); Controls.Add(duration);
-        cancel = Button("Cancel job", new Vector2(-0.16f, 0.30f), () =>
+        status.IsAutoEllipsisEnabled = true; status.Size = new Vector2(0.66f, 0.03f);
+        duration = Label("", new Vector2(-0.33f, 0.05f)); duration.TextScale = 0.55f; Controls.Add(duration);
+        cancel = Button("Cancel job", new Vector2(-0.16f, 0.12f), () =>
         { outcomeUnknown = false; cancelRequested = true; }, 0.20f);
         Controls.Add(cancel);
-        Controls.Add(Button("Close", new Vector2(0.16f, 0.30f), () => CloseScreen()));
+        Controls.Add(Button("Close", new Vector2(0.16f, 0.12f), () => CloseScreen()));
     }
     public override bool Update(bool hasFocus)
     {
         var result = base.Update(hasFocus);
         if (status == null || closed) return result;
-        if (!outcomeUnknown && canContinue?.Invoke() == false) cancelRequested = true;
+        Poll();
+        status.Text = statusText;
+        status.SetToolTip(UnifiedStorageHelp.Wrap(statusText));
+        details.Text = detailText;
+        details.SetToolTip(UnifiedStorageHelp.Wrap(detailText));
         duration.Text = $"Elapsed: {elapsed.Elapsed:mm\\:ss}";
         cancel.Enabled = !finished && !cancelRequested;
         if (cancelRequested && !finished) status.Text = "Stopping: waiting for server acknowledgement...";
-        if (!finished && !outcomeUnknown && (cancelRequested || Stopwatch.GetTimestamp() >= next) && !Plugin.Instance.Companion.Busy)
-            Query(cancelRequested);
+        if (finished && succeeded) CloseScreen();
         return result;
+    }
+    private void Poll()
+    {
+        if (closed || finished) return;
+        if (!outcomeUnknown && canContinue?.Invoke() == false) cancelRequested = true;
+        if (!outcomeUnknown && (cancelRequested || Stopwatch.GetTimestamp() >= next) && Plugin.Instance?.Companion?.Busy == false)
+            Query(cancelRequested);
     }
     private void Query(bool cancel)
     {
@@ -58,11 +102,10 @@ internal sealed class CompanionJobScreen : UnifiedStorageScreen
                 {
                     var receipt = ProfileCodec.Decode<UtilityJobReceipt>(response.Body);
                     if (receipt.Id != id) throw new InvalidOperationException("Wrong job receipt.");
-                    status.Text = $"{receipt.State}: {receipt.CompletedItems} completed; {receipt.Mutations} changes; {receipt.Failure}";
-                    status.SetToolTip(status.Text);
-                    details.Text = receipt.Detail ?? "";
-                    details.SetToolTip(UnifiedStorageHelp.Wrap(receipt.Detail ?? "Server-confirmed progress; total work is not estimated."));
+                    statusText = $"{receipt.State}: {receipt.CompletedItems} completed; {receipt.Mutations} changes; {receipt.Failure}";
+                    detailText = receipt.Detail ?? "";
                     finished = receipt.State != UtilityJobState.Running;
+                    succeeded = receipt.State == UtilityJobState.Complete;
                     // A status response may arrive after Close was clicked. Do not
                     // discard the queued cancellation while waiting for that response.
                     if (cancel || finished) cancelRequested = false;
@@ -79,8 +122,8 @@ internal sealed class CompanionJobScreen : UnifiedStorageScreen
     {
         outcomeUnknown = true;
         cancelRequested = false;
-        status.Text = reason + ". Job may still be running.";
-        details.Text = "Cancellation was not confirmed. Do not start replacement work blindly.";
+        statusText = reason + ". Job may still be running.";
+        detailText = "Cancellation was not confirmed. Check the inventories before retrying.";
         if (closingRequested) CloseScreen();
     }
     public override bool CloseScreen(bool isUnloading = false)

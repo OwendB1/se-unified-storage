@@ -11,29 +11,31 @@ namespace ClientPlugin.UI;
 internal sealed class RebalanceJobScreen : UnifiedStorageScreen
 {
     private readonly TransferOperationResult[] operations;
-    private readonly Stopwatch elapsed = Stopwatch.StartNew();
+    private readonly Stopwatch elapsed;
     private MyGuiControlLabel progress, detail, outcome;
     private MyGuiControlButton cancel;
     private bool cancelled;
 
-    public RebalanceJobScreen(TransferOperationResult[] operations) : base("Rebalance progress") =>
-        this.operations = operations;
+    public RebalanceJobScreen(TransferOperationResult[] operations, Stopwatch elapsed)
+        : base("Rebalance progress", new Vector2(0.76f, 0.36f))
+    { this.operations = operations; this.elapsed = elapsed; }
 
     protected override void CreateControls()
     {
-        Controls.Add(Label("Closing this window stops further rebalance transfers.", new Vector2(-0.36f, -0.25f)));
-        Controls.Add(Label("Already accepted transfers are not undone.", new Vector2(-0.36f, -0.19f)));
-        progress = Label("", new Vector2(-0.36f, -0.06f)); Controls.Add(progress);
+        var note = Label("Closing stops remaining work; completed moves are kept.", new Vector2(-0.33f, -0.09f));
+        note.TextScale = 0.55f;
+        Controls.Add(note);
+        progress = Label("", new Vector2(-0.33f, -0.04f)); Controls.Add(progress);
         progress.TextScale = 0.6f;
-        progress.IsAutoEllipsisEnabled = true; progress.Size = new Vector2(0.72f, 0.04f);
-        detail = Label("", new Vector2(-0.36f, 0.02f));
+        progress.IsAutoEllipsisEnabled = true; progress.Size = new Vector2(0.66f, 0.03f);
+        detail = Label("", new Vector2(-0.33f, 0.005f));
         detail.TextScale = 0.55f;
-        detail.IsAutoEllipsisEnabled = true; detail.Size = new Vector2(0.72f, 0.04f);
+        detail.IsAutoEllipsisEnabled = true; detail.Size = new Vector2(0.66f, 0.03f);
         Controls.Add(detail);
-        outcome = Label("", new Vector2(-0.36f, 0.10f)); outcome.TextScale = 0.55f; Controls.Add(outcome);
-        cancel = Button("Cancel job", new Vector2(-0.16f, 0.30f), Cancel, 0.20f);
+        outcome = Label("", new Vector2(-0.33f, 0.05f)); outcome.TextScale = 0.55f; Controls.Add(outcome);
+        cancel = Button("Cancel job", new Vector2(-0.16f, 0.12f), Cancel, 0.20f);
         Controls.Add(cancel);
-        Controls.Add(Button("Close", new Vector2(0.16f, 0.30f), () => CloseScreen()));
+        Controls.Add(Button("Close", new Vector2(0.16f, 0.12f), () => CloseScreen()));
     }
 
     public override bool Update(bool hasFocus)
@@ -43,7 +45,7 @@ internal sealed class RebalanceJobScreen : UnifiedStorageScreen
         var pending = operations.Count(item => item.Status is TransferOperationStatus.Queued or TransferOperationStatus.Running);
         var done = operations.Length - pending;
         progress.Text = $"{(pending == 0 ? cancelled ? "Stopped" : "Finished" : cancelled ? "Stopping" : "Balancing")}: " +
-                        $"{done} / {operations.Length} item plans ({done * 100 / operations.Length}%) · {elapsed.Elapsed:mm\\:ss}";
+                        $"{done} / {operations.Length} item plans ({done * 100 / Math.Max(1, operations.Length)}%) · {elapsed.Elapsed:mm\\:ss}";
         var current = operations.FirstOrDefault(item => item.Status == TransferOperationStatus.Running);
         detail.Text = current == null ? "" :
             $"{MyDefinitionManager.Static.GetPhysicalItemDefinition(current.Plan.ItemId)?.DisplayNameText ?? current.Plan.ItemId.SubtypeName}: " +
@@ -57,6 +59,7 @@ internal sealed class RebalanceJobScreen : UnifiedStorageScreen
             .Take(5).Select(item => item.Message))));
         cancel.Enabled = pending > 0 && !cancelled;
         if (pending == 0) elapsed.Stop();
+        if (pending == 0 && complete == operations.Length) CloseScreen();
         return result;
     }
 

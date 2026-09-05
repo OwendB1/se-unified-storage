@@ -342,7 +342,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private static string FeatureTooltip(InventorySectionKey section) =>
         section.Kind == InventorySectionKind.Refineries
-            ? "Configure ship-wide ore priorities. Priority settings save immediately; Sort now reorders refinery input stacks."
+            ? "Choose which ores refineries process first. Priorities cover this construct's refineries; Sort now reorders their inputs."
             : section.Kind == InventorySectionKind.Assemblers
                 ? "Set ship-wide component goals and supported assembler recipes. Save target saves quantities for selected components; Craft deficits queues missing stock from all saved goals."
                 : section.Kind == InventorySectionKind.DefinitionFallback
@@ -351,7 +351,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private static string UtilityTooltip(InventorySectionKey section) =>
         section.Kind == InventorySectionKind.Refineries
-            ? "Immediately move ingots from this ship's refinery outputs into general cargo using the selected policy. Input ores stay untouched; refining may continue. Exclusions, access and capacity still apply."
+            ? "Move current refinery-output ingots into general cargo in one pass. Leaves input ores and newly produced ingots alone. Uses the selected policy."
             : "Immediately return inventory from this ship's idle assembly-mode assemblers to general cargo. Queued, producing or disassembling machines are skipped. Exclusions, access and capacity still apply.";
 
     private static float GetSectionHeaderHeight(InventorySectionKey section) =>

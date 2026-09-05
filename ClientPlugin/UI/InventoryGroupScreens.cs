@@ -371,6 +371,7 @@ internal sealed class InventoryGroupRuleEditor : InventoryRuleEditor
         record.ItemDefinitionId = item.GetSelectedKey() > 0 ? items[(int)item.GetSelectedKey() - 1].ToString() : string.Empty;
         save(record); CloseScreen();
     }
-    private static string Display(MyDefinitionId id) => MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName;
+    private static string Display(MyDefinitionId id) => DefinitionLabels.Item(
+        MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText, id.TypeId.ToString(), id.SubtypeName);
     internal static string Display(string id) => MyDefinitionId.TryParse(id, out var parsed) ? Display(parsed) : id;
 }

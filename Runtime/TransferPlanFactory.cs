@@ -27,6 +27,7 @@ public static class TransferPlanFactory
         var requested = TransferPlanner.Normalize(itemId, amount);
         var allocations = new List<PhysicalTransferAllocation>();
         foreach (var source in projectedStack.Sources
+                     .Where(candidate => !ReferenceEquals(candidate.Inventory, destination))
                      .Where(candidate => candidate.Descriptor == null ||
                          (getFlags(candidate.Descriptor) & (InventoryManagementFlags.ManualBlock |
                                                             InventoryManagementFlags.ReservedInventory)) == 0)
@@ -50,7 +51,8 @@ public static class TransferPlanFactory
         MyFixedPoint amount,
         IEnumerable<InventoryDescriptor> destinationCandidates,
         DistributionPolicy policy,
-        Func<InventoryDescriptor, InventoryManagementFlags> getFlags = null)
+        Func<InventoryDescriptor, InventoryManagementFlags> getFlags = null,
+        bool allowFallbacks = true)
     {
         if (source == null)
             throw new ArgumentNullException(nameof(source));
@@ -58,8 +60,11 @@ public static class TransferPlanFactory
             throw new ArgumentNullException(nameof(destinationCandidates));
         getFlags ??= _ => InventoryManagementFlags.None;
         var itemId = item.Content.GetObjectId();
-        var destinations = CreateDestinationSnapshots(itemId, destinationCandidates, getFlags);
+        var destinations = CreateDestinationSnapshots(itemId,
+            destinationCandidates.Where(candidate => !ReferenceEquals(candidate.Inventory, source)), getFlags);
         var plannedDestinations = TransferPlanner.PlanDestinations(policy, itemId, amount, destinations);
+        if (!allowFallbacks)
+            return TransferPlanner.Pair(itemId, amount, new[] { new InventoryStackReference(source, item) }, plannedDestinations);
         return PairWithFallbacks(
             itemId,
             amount,
@@ -120,12 +125,13 @@ public static class TransferPlanFactory
         var virtualMass = managedMembers.ToDictionary(
             member => member.Inventory,
             member => member.Inventory.CurrentMass);
-        foreach (var projected in role.Stacks
-                     .OrderBy(stack => stack.DefinitionId.ToString(), StringComparer.Ordinal)
-                     .ThenBy(stack => stack.Representative.ItemId))
+        // Balance quantities by definition, not by display stack. Stateful tools/bottles
+        // remain separate physical items but must share one set of per-inventory targets.
+        foreach (var projected in role.Stacks.GroupBy(stack => stack.DefinitionId)
+                     .OrderBy(group => group.Key.ToString(), StringComparer.Ordinal))
         {
-            var itemId = projected.DefinitionId;
-            var managedSources = projected.Sources
+            var itemId = projected.Key;
+            var managedSources = projected.SelectMany(stack => stack.Sources)
                 .Where(source => source.Descriptor != null && managedSet.Contains(source.Descriptor))
                 .ToArray();
             var byInventory = managedSources

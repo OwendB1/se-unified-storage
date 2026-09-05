@@ -387,6 +387,22 @@ internal static class TerminalInventoryHandleInputPatch
     private static bool Prefix(object __instance) => TerminalInventoryBridge.HandleInput(__instance);
 }
 
+// Native callbacks can outlive their controller's Close (focus transitions in particular).
+// While Unified owns the page, only its own grid handlers may process input.
+[HarmonyPatch]
+internal static class TerminalInventoryNativeCallbacksPatch
+{
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        var type = AccessTools.TypeByName("Sandbox.Game.Gui.MyTerminalInventoryController");
+        foreach (var name in new[] { "ParentsFocusChanged", "grid_focusChanged", "grid_ItemSelected",
+                     "grid_ItemDragged", "grid_ItemDoubleClicked", "grid_ItemClicked", "grid_ItemReleased",
+                     "grid_ReleasedWithoutItem", "grid_ItemControllerAction" })
+            yield return AccessTools.Method(type, name);
+    }
+    private static bool Prefix(object __instance) => TerminalInventoryBridge.HandleInput(__instance);
+}
+
 [HarmonyPatch]
 internal static class TerminalInventorySetSearchPatch
 {

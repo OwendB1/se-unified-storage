@@ -12,6 +12,7 @@
     <Compile Include="..\Shared\Companion\TransferIntent.cs" Link="TransferIntent.cs" />
     <Compile Include="..\Shared\Companion\AutomationIntent.cs" Link="AutomationIntent.cs" />
     <Compile Include="..\ClientPlugin\UI\ListSelection.cs" Link="ListSelection.cs" />
+    <Compile Include="..\ClientPlugin\UI\DefinitionLabels.cs" Link="DefinitionLabels.cs" />
     <Compile Include="..\Shared\Planning\DistributionPlannerCore.cs" Link="DistributionPlannerCore.cs" />
     <Compile Include="..\Runtime\WeaponCoreCompatibility.cs" Link="WeaponCoreCompatibility.cs" />
   </ItemGroup>

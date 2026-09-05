@@ -106,6 +106,7 @@ public class Plugin : IPlugin, ICommonPlugin
             ConfigStorage.Save(global::ClientPlugin.Config.Current);
             Profiles?.Save();
             WeaponCoreCompatibility.Reset();
+            UI.CompanionJobScreen.ClearPending();
             Companion?.Dispose();
             Automation?.Dispose();
             Transfers?.Clear("plugin unloaded");
@@ -129,8 +130,12 @@ public class Plugin : IPlugin, ICommonPlugin
         Companion = null;
     }
 
-    private static void ClientConfigChanged(object sender, PropertyChangedEventArgs e) =>
+    private static void ClientConfigChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(global::ClientPlugin.Config.ForceClientOnly))
+            Instance?.Companion?.ApplyPrivacySetting();
         ConfigStorage.Save(global::ClientPlugin.Config.Current);
+    }
 
     public void Update()
     {
@@ -159,6 +164,7 @@ public class Plugin : IPlugin, ICommonPlugin
         PatchHelpers.PatchUpdates();
         WeaponCoreCompatibility.Update();
         Companion?.Update();
+        UI.CompanionJobScreen.UpdatePending();
         Transfers?.Update();
         RefinerySorts?.Update();
         ProductionQueue?.Update();

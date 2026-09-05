@@ -20,7 +20,7 @@ internal static class CompanionActions
         if (client?.AllowsLocal(scope.AnchorGrid, capability) == false)
         { Notify("Server owns this service, or ownership is unknown. Check Shared profile."); return true; }
         if (client?.Supports(capability) != true) return false;
-        if (client.Busy || Plugin.Instance.Transfers.PendingCount != 0 || Plugin.Instance.ProductionQueue.PendingCount != 0 ||
+        if (client.Busy || CompanionJobScreen.HasPending || Plugin.Instance.Transfers.PendingCount != 0 || Plugin.Instance.ProductionQueue.PendingCount != 0 ||
             Plugin.Instance.RefinerySorts.PendingCount != 0)
         { Notify("Wait for the current inventory operation to finish."); return true; }
         try
@@ -42,9 +42,8 @@ internal static class CompanionActions
                         var receipt = ProfileCodec.Decode<ActionReceipt>(response.Body);
                         if (receipt.JobId != Guid.Empty)
                         {
-                            var screen = new CompanionJobScreen(scope.AnchorGrid.EntityId, terminal.EntityId, receipt.JobId,
+                            CompanionJobScreen.Start(scope.AnchorGrid.EntityId, terminal.EntityId, receipt.JobId,
                                 action == ShipAction.Rebalance ? canContinue : null);
-                            Sandbox.Graphics.GUI.MyGuiSandbox.AddScreen(screen);
                             return;
                         }
                         Notify($"{action}: {receipt.Mutations} changes; {receipt.Failure}. " + receipt.Detail);

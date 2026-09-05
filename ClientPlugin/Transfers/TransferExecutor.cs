@@ -96,7 +96,6 @@ public sealed class TransferExecutor
                 active.Result.MovedAmount += moved;
                 active.InFlight = null;
                 active.NextAllocation++;
-                active.ConsecutiveFailures = 0;
                 if (!active.Result.CancelRequested && active.Result.MovedAmount >= active.Plan.RequestedAmount)
                 {
                     Finish(active, TransferOperationStatus.Complete,
@@ -143,19 +142,13 @@ public sealed class TransferExecutor
                     allocation.DestinationInventory.Owner?.DisplayName,
                     allocation.DestinationInventory.Owner?.EntityId,
                     reason);
-                active.ConsecutiveFailures++;
                 active.NextAllocation++;
-                if (active.ConsecutiveFailures >= 3)
-                {
-                    Finish(active, TransferOperationStatus.Partial,
-                        $"{active.Result.MovedAmount} / {active.Plan.RequestedAmount} moved: {reason}");
-                    return;
-                }
+                // The plan and per-frame budget bound this scan. Three unreachable
+                // candidates must not hide a valid fourth destination.
                 continue;
             }
 
-            var beforeSource = allocation.Source.Inventory.GetItemByID(allocation.Source.ItemId)?.Amount ??
-                               MyFixedPoint.Zero;
+            var beforeSource = allocation.Source.Inventory.GetItemAmount(active.Plan.ItemId);
             var beforeDestination = allocation.DestinationInventory.GetItemAmount(active.Plan.ItemId);
             MyInventory.TransferByUser(
                 allocation.Source.Inventory,
@@ -169,6 +162,9 @@ public sealed class TransferExecutor
                 beforeSource,
                 beforeDestination,
                 DateTime.UtcNow.AddMilliseconds(Math.Max(500, Config.Current.AcknowledgementTimeoutMilliseconds)));
+            // In a local world TransferByUser can complete synchronously. Capture
+            // that evidence before the next production tick replenishes the source.
+            TryAcknowledge(active.InFlight, out _);
             return;
         }
 
@@ -228,6 +224,11 @@ public sealed class TransferExecutor
         var destination = allocation.DestinationDescriptor;
         var sourceInventory = allocation.Source.Inventory;
         var destinationInventory = allocation.DestinationInventory;
+        if (ReferenceEquals(sourceInventory, destinationInventory))
+        {
+            reason = "source and destination are the same inventory";
+            return false;
+        }
         var sourceFlags = source == null ? InventoryManagementFlags.None : operation.GetManagementFlags(source);
         var destinationFlags = destination == null ? InventoryManagementFlags.None : operation.GetManagementFlags(destination);
         if ((sourceFlags & (InventoryManagementFlags.ManualBlock | InventoryManagementFlags.ReservedInventory)) != 0 ||
@@ -298,12 +299,16 @@ public sealed class TransferExecutor
     private static bool TryAcknowledge(InFlightTransfer transfer, out MyFixedPoint moved)
     {
         var currentSource = transfer.Allocation.Source.Inventory
-            .GetItemByID(transfer.Allocation.Source.ItemId)?.Amount ?? MyFixedPoint.Zero;
+            .GetItemAmount(transfer.Allocation.Source.DefinitionId);
         var currentDestination = transfer.Allocation.DestinationInventory
             .GetItemAmount(transfer.Allocation.Source.DefinitionId);
         var sourceDelta = MyFixedPoint.Max(transfer.BeforeSource - currentSource, MyFixedPoint.Zero);
         var destinationDelta = MyFixedPoint.Max(currentDestination - transfer.BeforeDestination, MyFixedPoint.Zero);
-        moved = MyFixedPoint.Min(transfer.Requested, MyFixedPoint.Max(sourceDelta, destinationDelta));
+        // Both replicated inventories must corroborate movement. Stack IDs can change during
+        // a local rearrangement; a missing source ID alone never establishes a successful transfer.
+        transfer.SourceDecrease = MyFixedPoint.Max(transfer.SourceDecrease, sourceDelta);
+        transfer.DestinationIncrease = MyFixedPoint.Max(transfer.DestinationIncrease, destinationDelta);
+        moved = MyFixedPoint.Min(transfer.Requested, MyFixedPoint.Min(transfer.SourceDecrease, transfer.DestinationIncrease));
         return moved > MyFixedPoint.Zero;
     }
 
@@ -348,7 +353,6 @@ public sealed class TransferExecutor
         public Action<TransferOperationResult> Completed { get; }
         public TransferOperationResult Result { get; }
         public int NextAllocation { get; set; }
-        public int ConsecutiveFailures { get; set; }
         public string LastFailureReason { get; set; }
         public InFlightTransfer InFlight { get; set; }
     }
@@ -374,6 +378,8 @@ public sealed class TransferExecutor
         public MyFixedPoint BeforeSource { get; }
         public MyFixedPoint BeforeDestination { get; }
         public DateTime Deadline { get; }
+        public MyFixedPoint SourceDecrease { get; set; }
+        public MyFixedPoint DestinationIncrease { get; set; }
     }
 }
 

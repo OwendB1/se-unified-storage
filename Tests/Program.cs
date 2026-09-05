@@ -4,6 +4,11 @@ WeaponCoreCompatibilityChecks.Run();
 ListSelectionChecks.Run();
 InventoryGroupChecks.Run();
 
+True(ClientPlugin.UI.DefinitionLabels.SingleLine("\r\nBulletproof Glass\r\nBuild time: 0.5s\nRequires:\n5x Silicon", "fallback") == "Bulletproof Glass", "recipe dropdown uses one line");
+True(ClientPlugin.UI.DefinitionLabels.SingleLine("\u2028\t\u2029", "fallback") == "fallback", "empty recipe title falls back");
+True(ClientPlugin.UI.DefinitionLabels.Item("Welder", "MyObjectBuilder_PhysicalGunObject", "Welder2Item") == "Welder (Tier 2)", "tool tier remains selectable with shared names");
+True(ClientPlugin.UI.DefinitionLabels.Item("Welder", "MyObjectBuilder_PhysicalGunObject", "ModWelder") == "Welder [ModWelder]", "unknown mod quality retains subtype");
+
 static void Equal(long expected, long actual, string message)
 {
     if (expected != actual)
