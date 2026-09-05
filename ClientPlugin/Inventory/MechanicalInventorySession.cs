@@ -23,6 +23,7 @@ public sealed class MechanicalInventorySession : IDisposable
     private string namedGroupSignature;
     private IReadOnlyList<HashSet<long>> conveyorNetworks;
     private string conveyorNetworkSignature;
+    private long weaponCoreRevision;
 
     public MechanicalInventorySession(
         MechanicalInventoryScopeScanner scanner,
@@ -40,7 +41,7 @@ public sealed class MechanicalInventorySession : IDisposable
 
     public MechanicalInventoryScope Scope { get; private set; }
     public InventoryProjection Projection { get; private set; }
-    public bool IsDirty => structureDirty || contentsDirty;
+    public bool IsDirty => structureDirty || contentsDirty || weaponCoreRevision != WeaponCoreCompatibility.Revision;
 
     public event Action Changed;
 
@@ -55,7 +56,7 @@ public sealed class MechanicalInventorySession : IDisposable
         var referenceGrid = anchorGrid ?? Scope.AnchorGrid;
         var current = MyCubeGridGroups.Static?.Mechanical.GetGroupNodes(referenceGrid) ??
             new List<MyCubeGrid> { referenceGrid };
-        var changed = current.Count != Scope.Grids.Count ||
+        var changed = weaponCoreRevision != WeaponCoreCompatibility.Revision || current.Count != Scope.Grids.Count ||
                       !current.Select(grid => grid.EntityId).OrderBy(id => id)
                           .SequenceEqual(Scope.Grids.Select(grid => grid.EntityId).OrderBy(id => id));
         if (changed)
@@ -87,13 +88,14 @@ public sealed class MechanicalInventorySession : IDisposable
     public InventoryProjection Refresh(Func<InventoryDescriptor, bool> includeInventory = null)
     {
         ThrowIfDisposed();
-        if (structureDirty || Scope == null)
+        if (structureDirty || Scope == null || weaponCoreRevision != WeaponCoreCompatibility.Revision)
         {
             Detach();
             Scope = anchorGrid == null
                 ? scanner.Capture(interactedEntity, identityId)
                 : scanner.Capture(interactedEntity, anchorGrid, identityId);
             Attach(Scope);
+            weaponCoreRevision = WeaponCoreCompatibility.Revision;
             conveyorNetworks = null;
             structureDirty = false;
             contentsDirty = true;

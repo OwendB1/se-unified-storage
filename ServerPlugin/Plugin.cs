@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Threading;
+using ClientPlugin.Inventory;
 using PluginSdk.Config;
 using PluginSdk.Logging;
 using Sandbox.Game.Multiplayer;
@@ -57,6 +58,7 @@ public sealed class Plugin : IPlugin
                 session = current;
                 server = new CompanionServer(current, PluginConfig, log, stats);
             }
+            WeaponCoreCompatibility.Update();
             server?.Update();
         }
         catch (Exception exception)
@@ -76,6 +78,7 @@ public sealed class Plugin : IPlugin
     }
     private void Unloading()
     {
+        WeaponCoreCompatibility.Reset();
         server?.Dispose(); server = null; session = null;
     }
     public void Dispose()

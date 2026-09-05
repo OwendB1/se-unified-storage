@@ -107,6 +107,7 @@ public class Plugin : IPlugin, ICommonPlugin
             global::ClientPlugin.Config.Current.PropertyChanged -= ClientConfigChanged;
             ConfigStorage.Save(global::ClientPlugin.Config.Current);
             Profiles?.Save();
+            WeaponCoreCompatibility.Reset();
             Companion?.Dispose();
             Automation?.Dispose();
             BottleRefills?.Clear();
@@ -160,6 +161,7 @@ public class Plugin : IPlugin, ICommonPlugin
     private void CustomUpdate()
     {
         PatchHelpers.PatchUpdates();
+        WeaponCoreCompatibility.Update();
         Companion?.Update();
         Transfers?.Update();
         RefinerySorts?.Update();

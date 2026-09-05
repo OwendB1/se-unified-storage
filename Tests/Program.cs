@@ -1,5 +1,7 @@
 using ClientPlugin.Transfers;
 
+WeaponCoreCompatibilityChecks.Run();
+
 static void Equal(long expected, long actual, string message)
 {
     if (expected != actual)

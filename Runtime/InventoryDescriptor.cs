@@ -22,7 +22,8 @@ public enum InventoryDiscoverySource
     ShipToolDefinition,
     ParachuteDefinition,
     ConstraintFallback,
-    Connector
+    Connector,
+    WeaponCoreApi
 }
 
 public readonly struct InventorySectionKey : IEquatable<InventorySectionKey>
@@ -136,6 +137,19 @@ internal static class InventoryDescriptorFactory
     public static InventoryDescriptor Create(MyCubeBlock owner, int inventoryIndex, MyInventory inventory)
     {
         var constraintSignature = GetConstraintSignature(inventory.Constraint);
+        var blockDefinition = owner.BlockDefinition.Id;
+        if (WeaponCoreCompatibility.IsWeapon(blockDefinition))
+            return CreateSemantic(
+                owner,
+                inventoryIndex,
+                inventory,
+                InventorySectionKey.Semantic(InventorySectionKind.Weapons),
+                InventoryDiscoverySource.WeaponCoreApi,
+                new InventoryRoleDescriptor(
+                    InventoryRoleKind.Ammunition,
+                    itemId => WeaponCoreCompatibility.Accepts(blockDefinition, itemId) && AcceptsLive(inventory, itemId)),
+                constraintSignature);
+
         var flags = inventory.GetFlags();
         var canSendAndReceive = (flags & (MyInventoryFlags.CanSend | MyInventoryFlags.CanReceive)) ==
                                 (MyInventoryFlags.CanSend | MyInventoryFlags.CanReceive);
