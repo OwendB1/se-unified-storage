@@ -21,7 +21,7 @@ internal static class CompanionActions
         { Notify("Server owns this service, or ownership is unknown. Check Shared profile."); return true; }
         if (client?.Supports(capability) != true) return false;
         if (client.Busy || Plugin.Instance.Transfers.PendingCount != 0 || Plugin.Instance.ProductionQueue.PendingCount != 0 ||
-            Plugin.Instance.RefinerySorts.PendingCount != 0 || Plugin.Instance.BottleRefills.IsRunning)
+            Plugin.Instance.RefinerySorts.PendingCount != 0)
         { Notify("Wait for the current inventory operation to finish."); return true; }
         try
         {

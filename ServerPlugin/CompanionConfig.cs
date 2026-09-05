@@ -28,9 +28,6 @@ public sealed class CompanionConfig : PluginConfig
     [BoolOption("Allow explicit server utility jobs. Never runs automatically")]
     public bool UtilityJobs { get; set => SetField(ref field, value); }
 
-    [BoolOption("Allow bottle refill jobs when utility jobs are enabled")]
-    public bool BottleRefillJobs { get; set => SetField(ref field, value); } = true;
-
     [BoolOption("Allow idle assembler drain jobs when utility jobs are enabled")]
     public bool AssemblerDrainJobs { get; set => SetField(ref field, value); } = true;
 

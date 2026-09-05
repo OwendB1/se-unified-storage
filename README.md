@@ -9,19 +9,22 @@ The current client implementation includes:
 - dynamic named terminal-group selectors, block types/definitions, recipe outputs, inventory roles and material filters;
 - definition-derived support for vanilla and modded ammunition, reactor fuel, refinery recipes, production inventories, and other live constraints;
 - optional WeaponCore API discovery of weapon definitions and their physical magazines, including sorter-based weapons and per-definition loadouts;
+- stable, locally remembered display order with same-section drag reordering (refinery inputs retain ore-priority order);
 - mouse and gamepad transfers, amount dialogs, search, filters, cross-grid-group transfers, and an in-page vanilla-UI fallback toggle;
 - Existing Stack First, Fill First, and Even By Item placement/rebalance policies;
 - UI-managed Manual, Reserved, and No Unified Cargo Destination exclusions;
 - automatic/manual refinery ore priority and bounded physical input sorting;
 - component production targets with add-only assembler queueing and opt-in local maintenance;
-- generic loadouts with target/supply/return groups, overlap conflict protection, explicit empty-bottle refill jobs, and idle-assembler draining;
+- generic loadouts with target/supply/return groups, overlap conflict protection, idle-assembler draining;
 - bounded, acknowledgement-driven execution with access, capacity, constraint, and vanilla-equivalent conveyor reachability checks before every transfer.
 
-The plugin works fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. The optional Magnetar companion adds revisioned shared settings, batched transfers/rebalance, server-owned refinery/production/loadout services, and explicit bottle-refill/assembler-drain jobs. All server mutation capabilities default off pending live acceptance. Unattended services additionally require profile-owner opt-in. See [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
+The plugin works fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. The optional Magnetar companion adds revisioned shared settings, batched transfers/rebalance, server-owned refinery/production/loadout services, and explicit idle-assembler-drain jobs. All server mutation capabilities default off pending live acceptance. Unattended services additionally require profile-owner opt-in. See [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
 
 WeaponCore compatibility activates automatically when its mod API is available in the world, on both the client and companion. Weapon groups and loadout item choices use WeaponCore's magazine mappings together with live inventory constraints. See [WEAPONCORE_COMPATIBILITY.md](Docs/WEAPONCORE_COMPATIBILITY.md) for behavior and in-game checks.
 
 The client entry point is **Inventory groups → Shared profile**. Fetch, inspect, publish or adopt a revision; **Server automation** manages ownership and run-now/status requests; **Profile tools** supports section patches, binding recovery and archived deletion. Only the profile owner can publish; faction members may read when sharing and operator policy allow it. Adoption keeps unmatched private groups, writes a separate local backup, and leaves maintenance switches off. Paged profiles support up to 256 KiB; legacy companions retain their smaller limit. No companion means normal inventory operations remain available, with a discovery grace period before remembered client maintainers start.
+
+Custom bottle refill is retired on SE 1.210+. Use native generator bottle pulling/auto-refill or a supplied Medical Room, Survival Kit or Refill Station. These are not identical to the removed job: native pulling does not promise to return bottles to their original cargo. The plugin leaves native settings untouched. See [Keen's 1.210 release notes](https://support.keenswh.com/spaceengineers/pc/announcement/update-1-210-prosperity).
 
 ## Build and test
 

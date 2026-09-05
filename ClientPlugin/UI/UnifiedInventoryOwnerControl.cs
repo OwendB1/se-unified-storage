@@ -320,7 +320,6 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private static string UtilityName(InventorySectionKey section) => section.Kind switch
     {
-        InventorySectionKind.UnifiedCargo => "Refill",
         InventorySectionKind.Assemblers => "Drain idle",
         _ => null
     };
@@ -333,9 +332,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 : "Configure definition-driven inventory loadouts";
 
     private static string UtilityTooltip(InventorySectionKey section) =>
-        section.Kind == InventorySectionKind.UnifiedCargo
-            ? "Run the ship-wide bounded bottle refill job"
-            : "Move inventory from this ship's idle assembly-mode assemblers back to general cargo";
+        "Move inventory from this ship's idle assembly-mode assemblers back to general cargo";
 
     private static float GetSectionHeaderHeight(InventorySectionKey section) =>
         FeatureName(section) != null && UtilityName(section) != null

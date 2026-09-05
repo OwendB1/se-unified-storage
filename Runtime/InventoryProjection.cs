@@ -48,6 +48,7 @@ public sealed class ProjectedInventoryStack
     public MyDefinitionId DefinitionId => Representative.Content.GetObjectId();
     public MyFixedPoint Amount { get; private set; }
     public IReadOnlyList<InventoryStackReference> Sources => sources;
+    public string DisplayKey { get; set; }
 
     internal bool CanStack(MyPhysicalInventoryItem item) =>
         Representative.Content.CanStack(item.Content) && item.Content.CanStack(Representative.Content);

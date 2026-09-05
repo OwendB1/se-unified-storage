@@ -77,9 +77,29 @@ Use both a local world and an unmodified multiplayer server.
 - Confirm a loadout uses its configured supply and excess-return groups, respects disabled directions, and never steals from another loadout's targets.
 - Exercise per-inventory and group-total targets, overlapping-target conflicts, missing groups, target/role changes, and maintained rules with the terminal closed.
 - Confirm the loadout table updates its status after transfers without closing the screen or losing row selection.
-- Refill empty oxygen and hydrogen bottles through a tank and generator. Confirm the explicit refill request, replicated gas-level wait, original-inventory return, fallback/stranded report, disconnection, and timeout paths. Partially filled bottles remain excluded until both filler paths are verified.
+- No plugin Refill button/coordinator remains. Native gas inventories and the drain action remain accessible; legacy companion refill requests fail closed.
 - Drain an idle assembly-mode assembler, then repeat while adding a queue entry or switching to disassembly after clicking. Confirm the live guard skips it without changing its queue or mode.
 
 ## Performance capture
 
 On a representative large station, record the same inventory-page open/close sequence in vanilla and Unified modes. Capture terminal-open wall time, rendered control count, allocations, average frame time, and worst frame. Repeat after an inventory content change and after a block add/remove. Confirm routine updates are event/debounce driven and transfer, sort, production, and bottle work issue at most one mutation while waiting for replicated state.
+
+## UX ordering/toggle acceptance
+
+- Same-section drag changes display order without native inventory mutations, in both directions and into empty slots. Search and refresh preserve it; close/reopen and client reload retain it. Remove/re-add a tool without moving it to a new rank.
+- Refinery input remains ore-priority driven. Stateful rows retain native stack distinctions.
+- Two-state native icon toggles off/on repeatedly; vanilla and unified suit/grid tabs still work. Compare bounds and focus with adjacent stock icons.
+- Double-click has immediate pending feedback and no trailing-refresh starvation. Verify actual source/destination quantities; do not fake optimistic counts.
+
+### Live UX results — 2026-09-05
+
+Verified on NewTest with the client devfolder and existing companion, SE 1.210.14, 3440×1440 fullscreen:
+
+- Same-section backward, adjacent-forward and empty-slot drags changed display order. Native cargo item IDs, amounts and physical order were unchanged by those drags.
+- Search/clear and terminal close/reopen preserved ranks. The grinder was deposited, moved to a chosen slot, withdrawn and re-deposited through the UI; it returned to that slot. A full client restart retained custom Computer/Grinder ordering.
+- Left-pane drag refreshed both panes when they showed the same view. Three disable/re-enable cycles passed on the final glyph build; both panes' vanilla and unified suit/grid controls continued working and ranks survived toggles.
+- The icon's reported width/height exactly matched a native filter button. The symmetric on glyph and struck-through off glyph were visually inspected. No plugin Refill button remained; native gas inventories remained visible.
+- One companion-backed grinder withdrawal took about 0.33 seconds from Remote's queued double-click gesture to the observed UI update, including input synthesis and polling. This is not a vanilla comparison or network-latency benchmark. Multi-source standalone acknowledgement cost is unchanged.
+- The test grinder was returned to the character. Original cargo display order and native character order (Grinder, Hand Drill, Welder) were restored; the latter used vanilla's swap gesture. No additional stock was spawned for this UX pass.
+
+Both Release builds, existing core tests and the temporary companion harness passed; no repository regression suite was added. Old XML containing the removed bottle option loaded through PluginSdk while retaining other operator settings, and the new Quasar schema omitted that option. The new server removal is build/config tested, not yet deployed or live-tested. Refinery priority precedence remains in code; a fresh multi-ore live sorting test and other resolutions/gamepad input were not repeated in this UX pass.

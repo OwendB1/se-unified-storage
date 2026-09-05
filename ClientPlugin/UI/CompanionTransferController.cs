@@ -69,6 +69,7 @@ internal sealed partial class UnifiedTerminalController
                 Notify(text);
                 if (!disposed) SessionChanged();
             })) Notify("Companion unavailable or busy. Nothing was sent; retry when ready.");
+            else MyAPIGateway.Utilities?.ShowNotification("Unified Storage: transfer pending…", 750);
         }
         catch (Exception exception)
         {

@@ -4,6 +4,7 @@ using System.Reflection;
 using HarmonyLib;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Screens.Helpers;
+using Sandbox.Graphics;
 using Sandbox.Graphics.GUI;
 using VRage.Game;
 using VRage.Game.Entity;
@@ -11,6 +12,50 @@ using VRage.Utils;
 using VRageMath;
 
 namespace ClientPlugin.UI;
+
+internal sealed class UnifiedModeButton : MyGuiControlButton
+{
+    public override void Draw(float transitionAlpha, float backgroundTransitionAlpha)
+    {
+        base.Draw(transitionAlpha, backgroundTransitionAlpha);
+        var style = MyGuiControlRadioButton.GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll);
+        var focus = ReferenceEquals(BackgroundTexture, style.FocusTexture);
+        var highlight = ReferenceEquals(BackgroundTexture, style.HighlightTexture);
+        var active = ReferenceEquals(BackgroundTexture, style.ActiveTexture);
+        var background = focus ? new Color(142, 188, 206) : highlight ? new Color(60, 76, 82)
+            : active ? new Color(91, 115, 123) : new Color(41, 54, 62);
+        var glyph = focus ? new Color(33, 41, 45) : highlight || active ? Color.White : new Color(146, 154, 160);
+        background.A = glyph.A = (byte)(MathHelper.Clamp(transitionAlpha, 0, 1) * 255);
+        var center = MyGuiManager.GetScreenCoordinateFromNormalizedCoordinate(GetPositionAbsoluteCenter());
+        center = new Vector2((float)Math.Round(center.X), (float)Math.Round(center.Y));
+        var pixels = MyGuiManager.GetScreenSizeFromNormalizedSize(Size);
+        var unit = Math.Min(pixels.X, pixels.Y);
+        var side = Math.Max(12, 2 * (int)Math.Round(unit * 0.28f));
+        var stroke = Math.Max(2, (int)Math.Round(unit * 0.035f));
+        var origin = center - new Vector2(side / 2);
+        // Integer pixels and mirrored offsets keep all four cells and margins symmetric.
+        void Fill(int x, int y, int width, int height, Color color) => MyGuiManager.DrawSpriteBatch(
+            MyGuiConstants.BLANK_TEXTURE, (int)origin.X + x, (int)origin.Y + y, width, height, color);
+        var mask = (int)Math.Ceiling(unit * 0.08f);
+        Fill(-mask, -mask, side + mask * 2, side + mask * 2, background);
+        Fill(0, 0, side, side, glyph);
+        Fill(stroke, stroke, side - stroke * 2, side - stroke * 2, background);
+        var cell = side / 5;
+        var inset = (side - cell * 2) / 3;
+        for (var x = 0; x < 2; x++)
+        for (var y = 0; y < 2; y++)
+            Fill(x == 0 ? inset : side - inset - cell, y == 0 ? inset : side - inset - cell, cell, cell, glyph);
+        if (!Checked)
+        {
+            var normalizedCenter = MyGuiManager.GetNormalizedCoordinateFromScreenCoordinate(center);
+            void Slash(int width, Color color) => MyGuiManager.DrawSpriteBatch(MyGuiConstants.BLANK_TEXTURE,
+                normalizedCenter, MyGuiManager.GetNormalizedSizeFromScreenSize(new Vector2(side * 1.5f, width)),
+                color, MyGuiDrawAlignEnum.HORISONTAL_CENTER_AND_VERTICAL_CENTER, rotation: -MathHelper.PiOver4);
+            Slash(stroke * 3, background);
+            Slash(stroke, glyph);
+        }
+    }
+}
 
 internal static class TerminalInventoryBridge
 {
@@ -23,8 +68,8 @@ internal static class TerminalInventoryBridge
         public MyGuiScreenBase Screen;
         public MyGridColorHelper ColorHelper;
         public UnifiedTerminalController Unified;
-        public MyGuiControlCheckbox Toggle;
-        public Action<MyGuiControlCheckbox> ToggleHandler;
+        public MyGuiControlButton Toggle;
+        public Action<MyGuiControlButton> ToggleHandler;
         public bool IsUnified;
     }
 
@@ -60,7 +105,8 @@ internal static class TerminalInventoryBridge
         state.Screen = screen;
         EnsureToggle(state);
         state.IsUnified = Config.Current.UnifiedByDefault;
-        state.Toggle.IsChecked = state.IsUnified;
+        state.Toggle.Checked = state.IsUnified;
+        UpdateToggleIcon(state);
         if (!state.IsUnified)
             return true;
         try
@@ -73,7 +119,8 @@ internal static class TerminalInventoryBridge
                 "Unified inventory initialization failed; restoring the vanilla inventory controller");
             state.Unified.Deactivate();
             state.IsUnified = false;
-            state.Toggle.IsChecked = false;
+            state.Toggle.Checked = false;
+            UpdateToggleIcon(state);
             return true;
         }
         return false;
@@ -151,47 +198,26 @@ internal static class TerminalInventoryBridge
     private static void EnsureToggle(State state)
     {
         const float filterButtonCenterY = -0.30925f;
-        state.Toggle = state.Parent.Controls.GetControlByName("UnifiedStorageToggle") as MyGuiControlCheckbox;
+        state.Toggle = state.Parent.Controls.GetControlByName("UnifiedStorageToggle") as MyGuiControlButton;
         if (state.Toggle != null)
             return;
-        state.Toggle = new MyGuiControlCheckbox
+        state.Toggle = new UnifiedModeButton
         {
             Name = "UnifiedStorageToggle",
             Position = new Vector2(0, filterButtonCenterY),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_RIGHT_AND_VERTICAL_CENTER,
-            IsChecked = Config.Current.UnifiedByDefault
+            Checked = Config.Current.UnifiedByDefault
         };
-        var checkboxStyle = MyGuiControlCheckbox.GetVisualStyle(MyGuiControlCheckboxStyleEnum.Debug);
         var toggleSize = MyGuiControlRadioButton
-            .GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll)
-            .NormalTexture.MinSizeGui;
-        // The checkbox DDS has more transparent padding than Keen's 69 px filter
-        // buttons. Scale its image so their visible bounds, rather than canvases, match.
-        var checkboxIconSize = toggleSize * new Vector2(1.1087f, 1.0625f);
-        state.Toggle.ApplyStyle(new MyGuiControlCheckbox.StyleDefinition
+            .GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll).NormalTexture.MinSizeGui;
+        UpdateToggleIcon(state);
+        state.ToggleHandler = _ =>
         {
-            NormalCheckedTexture = MyGuiConstants.TEXTURE_NULL,
-            NormalUncheckedTexture = MyGuiConstants.TEXTURE_NULL,
-            HighlightCheckedTexture = MyGuiConstants.TEXTURE_NULL,
-            HighlightUncheckedTexture = MyGuiConstants.TEXTURE_NULL,
-            FocusCheckedTexture = MyGuiConstants.TEXTURE_NULL,
-            FocusUncheckedTexture = MyGuiConstants.TEXTURE_NULL,
-            CheckedIcon = SizedCheckboxIcon(
-                checkboxStyle.NormalCheckedTexture,
-                checkboxStyle.HighlightCheckedTexture,
-                checkboxStyle.FocusCheckedTexture,
-                checkboxIconSize),
-            UncheckedIcon = SizedCheckboxIcon(
-                checkboxStyle.NormalUncheckedTexture,
-                checkboxStyle.HighlightUncheckedTexture,
-                checkboxStyle.FocusUncheckedTexture,
-                checkboxIconSize),
-            SizeOverride = toggleSize
-        });
-        state.Toggle.Size = toggleSize;
-        state.Toggle.SetToolTip("Use Unified Storage. Turn this off at any time to restore Keen's original inventory UI.");
-        state.ToggleHandler = _ => ToggleChanged(state);
-        state.Toggle.IsCheckedChanged += state.ToggleHandler;
+            state.Toggle.Checked = !state.Toggle.Checked;
+            UpdateToggleIcon(state);
+            ToggleChanged(state);
+        };
+        state.Toggle.ButtonClicked += state.ToggleHandler;
         var label = new MyGuiControlLabel
         {
             Name = "UnifiedStorageToggleLabel",
@@ -201,7 +227,7 @@ internal static class TerminalInventoryBridge
             TextScale = 0.62f
         };
         // Native selectors use left anchors, filters use right anchors. Center the
-        // whole label/checkbox pair in their real gap, including when filters are hidden.
+        // whole label/button pair in their real gap, including when filters are hidden.
         var gridButton = state.Parent.Controls.GetControlByName("LeftGridButton");
         var filterButton = state.Parent.Controls.GetControlByName("LeftFilterAllButton");
         var center = (gridButton.GetPositionAbsoluteTopRight().X + filterButton.GetPositionAbsoluteTopLeft().X) * 0.5f
@@ -214,23 +240,25 @@ internal static class TerminalInventoryBridge
         state.Parent.Controls.Add(state.Toggle);
     }
 
-    private static MyGuiHighlightTexture SizedCheckboxIcon(
-        MyGuiCompositeTexture normal,
-        MyGuiCompositeTexture highlight,
-        MyGuiCompositeTexture focus,
-        Vector2 size) => new()
+    private static void UpdateToggleIcon(State state)
     {
-        Normal = normal.Center.Texture,
-        Highlight = highlight.Center.Texture,
-        Focus = focus.Center.Texture,
-        SizePx = size * MyGuiConstants.GUI_OPTIMAL_SIZE
-    };
+        var style = MyGuiControlRadioButton.GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll);
+        state.Toggle.CustomStyle = new MyGuiControlButton.StyleDefinition
+        {
+            NormalTexture = style.NormalTexture, HighlightTexture = style.HighlightTexture,
+            FocusTexture = style.FocusTexture, ActiveTexture = style.ActiveTexture,
+            SizeOverride = style.NormalTexture.MinSizeGui
+        };
+        state.Toggle.SetToolTip(state.Toggle.Checked
+            ? "Unified Storage on. Click to restore vanilla inventories."
+            : "Unified Storage off. Click to combine inventories.");
+    }
 
     private static void ToggleChanged(State state)
     {
-        if (state.IsUnified == state.Toggle.IsChecked)
+        if (state.IsUnified == state.Toggle.Checked)
             return;
-        if (state.Toggle.IsChecked)
+        if (state.Toggle.Checked)
         {
             InvokeOriginal(CloseMethod, state.Instance);
             state.IsUnified = true;
@@ -258,7 +286,8 @@ internal static class TerminalInventoryBridge
             "Unified inventory controller failed; restoring Keen's inventory UI");
         state.Unified.Deactivate();
         state.IsUnified = false;
-        state.Toggle.IsChecked = false;
+        state.Toggle.Checked = false;
+        UpdateToggleIcon(state);
         InvokeOriginal(InitMethod, state.Instance,
             state.Parent, state.User, state.Interacted, state.ColorHelper, state.Screen);
     }
@@ -266,7 +295,7 @@ internal static class TerminalInventoryBridge
     private static void DetachToggle(State state)
     {
         if (state.Toggle != null && state.ToggleHandler != null)
-            state.Toggle.IsCheckedChanged -= state.ToggleHandler;
+            state.Toggle.ButtonClicked -= state.ToggleHandler;
     }
 
     private static object InvokeOriginal(MethodInfo method, object instance, params object[] arguments)

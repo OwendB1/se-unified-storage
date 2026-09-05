@@ -39,7 +39,6 @@ public class Plugin : IPlugin, ICommonPlugin
     public TransferExecutor Transfers { get; private set; }
     public RefinerySortExecutor RefinerySorts { get; private set; }
     public ProductionQueueExecutor ProductionQueue { get; private set; }
-    public BottleRefillCoordinator BottleRefills { get; private set; }
     public LocalAutomationService Automation { get; private set; }
     public Companion.CompanionClient Companion { get; private set; }
     public long Tick { get; private set; }
@@ -80,7 +79,6 @@ public class Plugin : IPlugin, ICommonPlugin
             Transfers = new TransferExecutor();
             RefinerySorts = new RefinerySortExecutor();
             ProductionQueue = new ProductionQueueExecutor();
-            BottleRefills = new BottleRefillCoordinator();
             Automation = new LocalAutomationService(InventoryScopes, Profiles);
             Companion = new Companion.CompanionClient();
         }
@@ -110,7 +108,6 @@ public class Plugin : IPlugin, ICommonPlugin
             WeaponCoreCompatibility.Reset();
             Companion?.Dispose();
             Automation?.Dispose();
-            BottleRefills?.Clear();
             Transfers?.Clear("plugin unloaded");
             RefinerySorts?.Clear();
             ProductionQueue?.Clear();
@@ -128,7 +125,6 @@ public class Plugin : IPlugin, ICommonPlugin
         Transfers = null;
         RefinerySorts = null;
         ProductionQueue = null;
-        BottleRefills = null;
         Automation = null;
         Companion = null;
     }
@@ -166,8 +162,8 @@ public class Plugin : IPlugin, ICommonPlugin
         Transfers?.Update();
         RefinerySorts?.Update();
         ProductionQueue?.Update();
-        BottleRefills?.Update();
         Automation?.Update(Tick);
+        Profiles?.FlushDisplayOrders();
     }
 
     // ReSharper disable once UnusedMember.Global

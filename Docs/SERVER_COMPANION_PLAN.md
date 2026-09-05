@@ -21,7 +21,7 @@ This is not a server-hosted port of ISY's programmable-block script. It has no p
 - Coordinate refinery sorting and target production so multiple clients cannot enqueue the same deficit.
 - Persist shared management exclusions and Phase 2 machine-loadout rules.
 - Coordinate optional server-owned loadout maintenance without creating separate uranium, ice, or ammunition automation engines.
-- Execute explicit bottle-refill and idle-assembler-drain jobs from authoritative state and return structured partial results.
+- Execute explicit idle-assembler-drain jobs from authoritative state and return structured partial results.
 - Optionally continue configured automation while no participating client has the terminal open or is connected.
 
 ## Non-goals
@@ -108,7 +108,7 @@ PatchScopeProfile(profile ID, base revision, changed fields)
 ScopeProfileChanged(profile ID, new revision, changed fields)
 RunAutomationNow(profile ID, refinery/component/loadout/all)
 AutomationStatus(profile ID, state, last result)
-StartUtilityJob(request ID, profile ID, refill-bottles/drain-idle-assemblers, selection)
+StartUtilityJob(request ID, profile ID, drain-idle-assemblers, selection)
 UtilityJobProgress(request ID, state, counts)
 UtilityJobResult(request ID, completed/partial/rejected, details)
 ```
@@ -190,17 +190,17 @@ This mode is the actual solution to duplicate multi-client target batches and of
 
 ## Explicit utility jobs
 
-Bottle refill and assembler drain are request-driven jobs, not maintainers. The companion is useful because it can validate and execute the complete multi-step operation from authoritative state, batch status messages, and finish after the initiating client closes the terminal or disconnects. Jobs are bounded and live only for the current server process; after a server restart, report them interrupted rather than reconstructing intent from inventory state.
+Assembler drains are request-driven jobs, not maintainers. The companion is useful because it can validate and execute the complete multi-step operation from authoritative state, batch status messages, and finish after the initiating client closes the terminal or disconnects. Jobs are bounded and live only for the current server process; after a server restart, report them interrupted rather than reconstructing intent from inventory state.
 
-### Refill bottles
+### Bottle refill retired
 
-The server independently resolves the requested scope, selected bottles, compatible non-Manual working fillers, ownership, constraints, and conveyor paths. Bottles stored on Manual blocks or in Reserved inventories are skipped as well. Initially select empty same-state bottle stacks; verify in game whether both filler types refill partially filled bottles before including them. Require a powered tank with gas (`FilledRatio > 0`) and `CanStore`, or a generator with ice or creative resources and `CanProduce`. Stage one stack into a filler, call `IMyGasTank.RefillBottles()` or `MyGasGenerator.RefillBottles()` explicitly on the game thread without toggling Auto-Refill, observe authoritative gas-level progress, and return it to its original inventory or an eligible Unified Cargo destination. A no-progress timeout returns the stack when possible and records a failure.
+Custom bottle refill is retired on SE 1.210+. Use native generator bottle pulling/auto-refill or a supplied Medical Room, Survival Kit or Refill Station. These are not identical to the removed job: native pulling does not promise to return bottles to their original cargo. The plugin leaves native settings untouched. The old `RefillBottles` wire value remains reserved and returns `PolicyDisabled`; do not renumber protocol actions.
 
 ### Drain idle assemblers
 
 Immediately before touching each assembler, recheck that it is in assembly mode, its queue is empty, it is not producing, the profile principal retains the configured ownership relation, and the Manual override is absent. Exclude disassembly-mode assemblers even with an empty queue because their output contains material deliberately staged for disassembly. Drain only non-Reserved input and output inventories through the normal authoritative deposit planner. If its mode changes or a queue appears during the job, skip that assembler without modifying its mode or queue.
 
-Both jobs use authenticated, idempotent request IDs, per-player and per-scope rate limits, maximum item/allocation counts, cancellation, progress, and structured partial results. Cancellation stops future steps but does not roll back transfers already accepted by the game.
+Drain jobs use authenticated, idempotent request IDs, per-player and per-scope rate limits, maximum item/allocation counts, cancellation, progress, and structured partial results. Cancellation stops future steps but does not roll back transfers already accepted by the game.
 
 ## Shared planning logic
 
@@ -216,7 +216,7 @@ The executor remains platform-specific:
 Initial configuration should be limited to controls the server operator actually needs:
 
 - Enable or disable companion transfers.
-- Enable or disable shared scope profiles, server-owned refinery sorting, server-owned component maintenance, server-owned loadout maintenance, bottle-refill jobs, and assembler-drain jobs independently.
+- Enable or disable shared scope profiles, server-owned refinery sorting, server-owned component maintenance, server-owned loadout maintenance, assembler-drain jobs independently.
 - Maximum intents per player over a time window.
 - Maximum physical allocations per intent.
 - Maximum dirty profiles, conveyor reachability queries, refinery swaps, loadout transfers, assembler additions, utility jobs, and job allocations processed per update window.
@@ -249,7 +249,7 @@ The subsequent source milestone wires normal unified transfers to bounded author
 9. Add swap-based server-owned refinery sorting with dirty-event debouncing, reachability and swap limits, ownership-change pauses, and mixed refinery definitions.
 10. Add server-owned component maintenance with definition-derived blueprint resolution, cooperative-assembler exclusion, maximum queue length, content-based queue accounting, integral rounding, and add-only semantics.
 11. Add persistence-only Phase 2 loadout rules, then server-owned loadout maintenance using the existing target and transfer planners.
-12. Add bounded explicit bottle-refill jobs with explicit refill calls and the partial-bottle verification gate, then assembly-only idle-assembler-drain jobs.
+12. Add bounded assembly-only idle-assembler-drain jobs. Custom bottle refill is retired in favor of native SE systems.
 13. Add bounded queues, rate limits, timeouts, cancellation, merge conflicts, event-driven split/merge/ownership handling, and orphan retention.
 14. Add PluginSdk operator configuration, structured results, comparable validation logging, and runtime statistics.
 15. Test companion absence, late discovery, partial capability sets, version mismatch, oversized/paged messages, disconnects, duplicate IDs, unknown outcomes, stale stacks, destroyed blocks, sorter and tube-size changes, full destinations, simultaneous editors, two automation clients, ownership/faction/admin-policy changes, server restart, profile split/merge, blueprint paste, missing mods, utility-job interruption, and world save/unload.
@@ -264,3 +264,7 @@ Transfer tests must compare companion decisions with the vanilla client for both
 - Bind requests to a world-session epoch and a short server-time deadline. An expired request must not become executable after its cached result is pruned. Handshake establishes the clock offset so client wall-clock skew does not cause immediate rejection.
 - Cache XML serializers and debounce world-profile writes. Profile changes contain intent only; no inventory manifest is scanned or serialized for settings persistence.
 - Reuse the game's native terminal access/ownership validator for settings access. This does not substitute for the additional conveyor, distance, endpoint and mutation checks required by future transfer intents.
+
+## UX companion boundary — 2026-09-05
+
+Display ordering, drag rearrangement and the two-state fallback icon are entirely client-local. They do not modify shared profiles or physical inventory order. Companion transfer batching remains the accelerated path; preserve validation and authoritative receipts. Remove the custom refill executor and its operator option; old requests fail safely. The client remains compatible with an older companion for retained actions.

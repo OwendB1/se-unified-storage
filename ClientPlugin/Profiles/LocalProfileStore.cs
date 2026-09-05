@@ -13,6 +13,7 @@ namespace ClientPlugin.Profiles;
 public sealed class LocalProfileDocument
 {
     public List<ScopeProfile> Profiles { get; set; } = new();
+    public List<DisplayOrderRecord> DisplayOrders { get; set; } = new();
 }
 
 public sealed class LocalProfileStore
@@ -21,6 +22,7 @@ public sealed class LocalProfileStore
     private readonly string path;
     private LocalProfileDocument document;
     private bool loadFailed;
+    private DateTime displayOrderSaveAt;
 
     public LocalProfileStore(IPluginLogger log, string path = null)
     {
@@ -30,6 +32,24 @@ public sealed class LocalProfileStore
     }
 
     public IReadOnlyList<ScopeProfile> Profiles => document.Profiles;
+    public List<DisplayOrderRecord> DisplayOrders => document.DisplayOrders;
+
+    public void DisplayOrderChanged()
+    {
+        if (displayOrderSaveAt == default) displayOrderSaveAt = DateTime.UtcNow.AddSeconds(2);
+    }
+
+    public void FlushDisplayOrders()
+    {
+        if (displayOrderSaveAt == default || DateTime.UtcNow < displayOrderSaveAt || loadFailed) return;
+        try { Save(); }
+        catch (Exception exception)
+        {
+            // A private presentation preference must not disable transfers on a full/read-only disk.
+            displayOrderSaveAt = DateTime.UtcNow.AddSeconds(30);
+            log.Error(exception, "Could not save inventory display order; will retry later");
+        }
+    }
 
     public ScopeProfile GetOrCreate(string worldId, MechanicalInventoryScope scope)
     {
@@ -68,6 +88,7 @@ public sealed class LocalProfileStore
             File.Replace(temporary, path, path + ".bak");
         else
             File.Move(temporary, path);
+        displayOrderSaveAt = default;
     }
 
     public void BackupBeforeAdoption()
@@ -85,6 +106,10 @@ public sealed class LocalProfileStore
             var serializer = new XmlSerializer(typeof(LocalProfileDocument));
             using var reader = File.OpenText(path);
             var loaded = serializer.Deserialize(reader) as LocalProfileDocument ?? new LocalProfileDocument();
+            loaded.DisplayOrders ??= new();
+            loaded.DisplayOrders.RemoveAll(order => order == null);
+            foreach (var order in loaded.DisplayOrders)
+                order.Keys = (order.Keys ?? new()).Where(key => !string.IsNullOrEmpty(key)).Distinct().ToList();
             foreach (var profile in loaded.Profiles)
                 InventoryGroupRecord.Migrate(profile);
             return loaded;

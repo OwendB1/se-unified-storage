@@ -5,6 +5,7 @@ using ClientPlugin.Profiles;
 
 namespace Shared.Companion;
 
+// RefillBottles is reserved for wire compatibility; retired in favor of SE's native refill systems.
 public enum ShipAction { Rebalance, SortRefineries, QueueComponents, ApplyLoadouts, DrainAssemblers, RefillBottles }
 
 public sealed class ShipActionIntent

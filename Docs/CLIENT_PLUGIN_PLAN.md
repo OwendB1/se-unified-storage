@@ -25,7 +25,7 @@ Consequently, the client may read replicated definitions and inventory state, bu
 
 The implemented UI now exposes separate conveyor-component scopes and player-defined block groups. Custom semantics for mods that expose neither definitions nor useful inventory constraints remain deferred. Sorter direction, filters, and tube-size rules are always honored by transfers.
 
-After that first pass is stable, Phase 2 may add generic machine loadout targets plus explicit **Refill Bottles** and **Drain Idle Assemblers** actions. They are extensions of the same projection and transfer planner, not prerequisites for Unified Cargo.
+After that first pass is stable, Phase 2 may add generic machine loadout targets plus an explicit **Drain Idle Assemblers** action. They are extensions of the same projection and transfer planner, not prerequisites for Unified Cargo.
 
 ## Client UI
 
@@ -91,7 +91,7 @@ The existing **Rebalance** button still applies only to the Assemblers Input and
 
 Each block-type header has a small **Manage members** action that lists the real blocks and inventory roles contributing to that section. It replaces ISY's `[Locked]`, `[Hidden]`, and `!manual` name tags with explicit settings:
 
-- **Manual block:** every automatic or bulk plugin action—including sorting, target maintenance, loadouts, refill, cleanup, and section-wide Rebalance—skips every inventory on that block. Direct user drag-and-drop remains available.
+- **Manual block:** every automatic or bulk plugin action—including sorting, target maintenance, loadouts, cleanup, and section-wide Rebalance—skips every inventory on that block. Direct user drag-and-drop remains available.
 - **Reserved inventory:** the inventory remains visible, but its contents do not satisfy component or future loadout totals and no virtual, automatic, or bulk planner selects it as a source or destination. Show the reserved portion in the aggregated row's details and a **Reserved / not counted** badge so displayed and usable totals cannot be confused. The player can still manipulate it through the vanilla fallback or an explicitly selected concrete inventory.
 - **Not a Unified Cargo destination:** a general-purpose cargo inventory remains visible and withdrawable but is not selected for automatic deposits or redistribution.
 
@@ -251,7 +251,7 @@ Save terminal group **names**, scoped to the current mechanical ship, never a sn
 
 The **Groups** button opens the ordered group list: new, edit/rename, duplicate, move up/down, delete, and restore defaults. Built-in cargo, weapons, power, refinery, assembler, gas, tool, safety, connectors and unknown-definition entries are presets. Unknown-definition presets retain exact definition/inventory/constraint separation. Editing groups only changes views; it does not transfer stock. Restore defaults resets built-in presets after confirmation while preserving custom groups and loadouts. Removing a referenced group retains the inactive rule for repair.
 
-Definition adapters remain responsible for ammo, fuel, blueprint and live inventory constraints. Display names never determine capabilities. Mixed/custom groups expose relevant production actions from their actual members. Ore-priority and component-target settings remain ship-wide; rebalance operates on the selected group's role inventories. Refill and idle-drain utilities are explicitly ship-wide.
+Definition adapters remain responsible for ammo, fuel, blueprint and live inventory constraints. Display names never determine capabilities. Mixed/custom groups expose relevant production actions from their actual members. Ore-priority and component-target settings remain ship-wide; rebalance operates on the selected group's role inventories. Idle-drain utilities are explicitly ship-wide.
 
 The pane-level **Loadouts** button opens all rules, including rules for groups with no current members; section shortcuts filter that list. The list provides new/edit/delete and explicit apply, with a separate editor so routing options do not crowd the inventory table. A rule stores:
 
@@ -280,18 +280,9 @@ Use the existing snapshot, target accounting, candidate filtering, placement pol
 
 ## Explicit utility actions
 
-### Refill bottles
+### Native bottle refill — custom job retired
 
-Expose **Refill Bottles** in the Unified Cargo toolbar when the scope contains an empty compatible bottle stack and a usable tank or generator. Whether Keen refills partially filled bottles is an explicit in-game verification gate; include partial bottles only after that behavior is proven for both filler types. This starts a bounded job:
-
-1. Resolve non-Reserved bottles, their gas type, and compatible non-Manual filling inventories from loaded definitions and live constraints.
-2. Require a usable filler: a powered tank with `FilledRatio > 0` and `CanStore`, or a generator with ice or creative resources and `CanProduce`.
-3. Stage exactly one bottle at a time through ordinary client-requested transfers to a reachable working filler, with at most 16 source stacks selected per pass. Multi-bottle stacks contribute one bottle per explicit pass; identify the staged bottle before continuing.
-4. Explicitly invoke the same refill request as the terminal button: call `MyGasGenerator.SendRefillRequest` directly and use reflection or a Harmony reverse patch for the tank's private `MyGasTank.SendRefillRequest`. Never toggle Auto-Refill.
-5. Wait for the replicated stack gas level to change, report failure, or stop at a no-progress timeout.
-6. Try its original inventory first, followed by eligible Unified Cargo destinations using the captured placement policy. Keep attempts in one bounded transfer operation with the normal access, exclusion, capacity and conveyor checks. A timeout never starts a fallback retry: report the uncertain outcome and possible stranded location.
-
-Report each selected bottle stack as filled, returned unfilled, or stranded at the filler. Do not add continuous bottle-filling automation; the explicit job is the entire client feature.
+Custom bottle refill is retired on SE 1.210+. Use native generator bottle pulling/auto-refill or a supplied Medical Room, Survival Kit or Refill Station. These are not identical to the removed job: native pulling does not promise to return bottles to their original cargo. The plugin leaves native settings untouched.
 
 ### Drain idle assemblers
 
@@ -515,7 +506,7 @@ The linked [ISY's Inventory Manager source](https://github.com/dorimanx/Isys-Inv
 - Keep type-section balancing only through the existing **Rebalance** action and placement policies.
 - Replace locked, hidden, and manual name tags with the UI-managed exclusions defined above.
 - Generalize special containers, reactor uranium limits, generator ice limits, and ammunition stocking into the Phase 2 machine-loadout system.
-- Keep bottle filling only as the explicit bounded **Refill Bottles** action.
+- Rely on native bottle pulling/refill; do not maintain a custom refill coordinator.
 - Keep assembler cleanup only as the explicit **Drain Idle Assemblers** action.
 - Defer script-assisted refinery filling behind the testing gate above; ordinary ore balancing is already Rebalance.
 
@@ -566,7 +557,7 @@ It does not remove Space Engineers' underlying conveyor graph. Hundreds of cargo
 14. Add unified-to-unified transfers between distinct mechanical grid groups.
 15. Complete mouse, amount-dialog, search, drag-and-drop, and the substantial custom gamepad transfer/help paths.
 16. Add Phase 2 machine loadouts by reusing target accounting and the existing transfer planner.
-17. Add the explicit **Refill Bottles** bounded job with the refill request and partial-bottle verification gate.
+17. Retired: custom bottle refill; native SE 1.210+ systems cover this workflow.
 18. Add the explicit **Drain Idle Assemblers** bounded job with disassembly-mode exclusion.
 19. Add block-group and conveyor-component scopes.
 20. Consider knapsack-style packing only for a later explicit policy.
@@ -576,4 +567,12 @@ Definition-compatibility tests must cover vanilla weapons, conventional modded w
 
 Refinery tests must cover pairwise swap planning, merge behavior for stackable inputs, the actual physical input order, pinned and automatic priorities, live scarcity changes, stone or other multi-output recipes, modded ores and outputs, multiple refinery capability sets, repeated conveyor pulls and content-change events, rejected same-inventory requests, and a rebalance followed by re-sort. Component-target tests must cover integral rounding, blueprint result amounts greater than one, co-products, ambiguous recipes, uncraftable modded components, existing manual queues, cooperative and disassembly-mode assemblers, `CurrentState`, maximum queue length, false-positive success broadcasts, merged queue entries, target reductions, in-flight replication delay, and two clients observing the same deficit.
 
-Exclusion tests must prove that excluded inventories remain visible while every affected planner obeys their exact flags. Transfer tests must prove both reachability stages, sorter direction and filters, large-tube requirements, the interacted-block character proxy, cache invalidation, query budgeting, local constraint rejection, silent server timeout, and stop-on-repeated-failure behavior. Loadout tests must cover per-member and section-total targets, constrained and modded inventories, partial stock, excess returns, non-working blocks, and the prohibition on stealing from another loadout. Bottle tests must prove explicit refill requests, filler preconditions, same-state stack handling, empty bottles, changed bottle state, and whether partial bottles refill in both tanks and generators. Drain tests must cover disassembly exclusion and an assembler receiving a queue or mode change after the action was requested. Both utility suites also cover disconnection, timeout, destroyed blocks, and destination-full partial results.
+Exclusion tests must prove that excluded inventories remain visible while every affected planner obeys their exact flags. Transfer tests must prove both reachability stages, sorter direction and filters, large-tube requirements, the interacted-block character proxy, cache invalidation, query budgeting, local constraint rejection, silent server timeout, and stop-on-repeated-failure behavior. Loadout tests must cover per-member and section-total targets, constrained and modded inventories, partial stock, excess returns, non-working blocks, and the prohibition on stealing from another loadout. Drain tests must cover disassembly exclusion and an assembler receiving a queue or mode change after the action was requested. Drain tests also cover disconnection, timeout, destroyed blocks, and destination-full partial results.
+
+## UX feedback pass — 2026-09-05
+
+- Seed each section from native inventory order (accessed block first); retain local ranks by world, mechanical scope, view, section and item content. Removing/re-adding an item reuses its rank. Absent ranks are bounded; new item kinds append. Stateful items still use Keen's stackability, never this display key, for aggregation. Identical non-stacking items use occurrence ranks; refilling a bottle does not change its ordering identity.
+- Same-section drag moves a visible entry to the target position, including append into empty slots. This only edits local presentation preferences and never moves physical stacks. Refinery input remains controlled by Ore Priority. Search does not rewrite ranks. Redraws defer while dragging so indices cannot retarget a live drag.
+- Non-trailing inventory refresh coalescing, capped at 50 ms (new default zero). Immediate transfer-pending feedback; authoritative item counts remain untouched until replication. Client-only multi-source moves still wait for acknowledgement; batching without an authoritative receipt is not safe.
+- Replace the fallback checkbox with a native-sized icon button: a symmetric shared-container glyph, with a diagonal strike-through when off, state/action tooltip and keyboard focus. Mirror integer-pixel geometry to avoid uneven cell spacing. Keep the label and restore-vanilla safety path.
+- Display ranks are private client preferences, not shared ship settings. No server companion is required.

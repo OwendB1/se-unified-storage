@@ -15,6 +15,7 @@ using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.World;
 using Sandbox.Graphics;
 using Sandbox.Graphics.GUI;
+using Sandbox.ModAPI;
 using VRage;
 using VRage.Game;
 using VRage.Game.Entity;
@@ -212,7 +213,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             nextScopePollUtc = DateTime.UtcNow.AddSeconds(1);
             PollScopes();
         }
-        if (!dirty || DateTime.UtcNow < refreshAfterUtc)
+        if (!dirty || DateTime.UtcNow < refreshAfterUtc || dragAndDrop.IsActive())
             return;
         try
         {
@@ -501,9 +502,10 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void SessionChanged()
     {
+        if (dirty) return;
         dirty = true;
         refreshAfterUtc = DateTime.UtcNow.AddMilliseconds(
-            Math.Max(0, Config.Current.RefreshDebounceMilliseconds));
+            Math.Min(50, Math.Max(0, Config.Current.RefreshDebounceMilliseconds)));
     }
 
     private void RebuildPane(Pane pane, bool contentsOnly = false)
@@ -554,7 +556,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             var profile = profiles[session];
             var view = choice.View;
             {
-                var projection = view.Projection;
+                var projection = InventoryDisplayOrder.Apply(view.Projection, profile, view.Id, interacted?.EntityId ?? 0);
                 if (projection.Roles.Any(role => role.Members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery)))
                     projection = ProjectionOrdering.ApplyRefineryPriority(
                         projection,
@@ -722,6 +724,20 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     {
         if (args.DragFrom?.Grid == null || args.DropTo?.Grid == null)
             return;
+        if (ReferenceEquals(args.DragFrom.Grid, args.DropTo.Grid) &&
+            args.DragFrom.Grid.UserData is ProjectedGridContext context)
+        {
+            if (InventoryDisplayOrder.IsPriorityDriven(context.Role))
+                MyAPIGateway.Utilities?.ShowNotification("Refinery input order is controlled by Ore Priority.", 3000);
+            else
+                InventoryDisplayOrder.Move(profiles[context.Owner.Session], context.Owner.ViewId, context.Role,
+                    args.DragFrom.Grid.GetItemAt(args.DragFrom.ItemIndex)?.UserData as ProjectedInventoryStack,
+                    args.DropTo.Grid.IsValidIndex(args.DropTo.ItemIndex)
+                        ? args.DropTo.Grid.GetItemAt(args.DropTo.ItemIndex)?.UserData as ProjectedInventoryStack : null);
+            SessionChanged();
+            Refresh();
+            return;
+        }
         var amount = GetAmount(args.DragFrom.Grid, args.DragFrom.ItemIndex);
         if (args.DragButton == MySharedButtonsEnum.Secondary)
             ShowAmountDialog(amount, GetDefinition(args.DragFrom.Grid, args.DragFrom.ItemIndex), value =>
@@ -967,20 +983,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         var profile = profiles[session];
         // Utilities are explicitly ship-wide, not actions on possibly overlapping display rows.
         projection = session.Refresh();
-        if (section.Kind == InventorySectionKind.UnifiedCargo &&
-            CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.RefillBottles)) return;
         if (section.Kind == InventorySectionKind.Assemblers &&
             CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.DrainAssemblers)) return;
-        if (section.Kind == InventorySectionKind.UnifiedCargo)
-        {
-            Plugin.Instance.BottleRefills.Start(
-                projection,
-                profile,
-                interacted,
-                MySession.Static?.LocalPlayerId ?? 0L,
-                GetFlags);
-        }
-        else if (section.Kind == InventorySectionKind.Assemblers)
+        if (section.Kind == InventorySectionKind.Assemblers)
         {
             foreach (var operation in DrainAssemblerEngine.Plan(projection, profile, GetFlags))
                 Queue(
@@ -1025,6 +1030,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             InventoryGroups.Guard(context.Owner.Session.Scope, profiles[context.Owner.Session],
                 new[] { context.Role.Section.GroupId })).ToArray();
         Queue(plan, () => guards.All(guard => guard()), "group membership changed; retry transfer");
+        if (plan.PlannedAmount > MyFixedPoint.Zero)
+            MyAPIGateway.Utilities?.ShowNotification("Unified Storage: transfer pending…", 750);
     }
 
     private void Queue(

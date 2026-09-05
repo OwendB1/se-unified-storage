@@ -1,6 +1,12 @@
 # Server companion implementation status
 
-## Current source — full companion feature pass
+## Current source — UX cleanup
+
+Custom bottle refill and its operator setting are removed in source; native SE 1.210+ handles refill. The protocol value remains reserved and returns PolicyDisabled. Historical refill tests below record the retired implementation, not a current feature. This removal builds successfully but is not yet loaded by the live server.
+
+UX verification: client/server Release builds, core tests and the temporary companion harness pass. A PluginSdk load of legacy XML with `BottleRefillJobs` preserved the retained settings; the generated Quasar schema omitted the removed option. Live client ordering, round-trip tool transfers, persistence and final icon/toggle checks are recorded in `CLIENT_PLUGIN_TEST_MATRIX.md`. No new server runtime acceptance is claimed by those client checks.
+
+## Full companion feature pass
 
 The sections below this one record earlier milestones. This section supersedes their feature-status and size-limit statements. The full companion build was published at `f5f52e8e290bf4a51e2e52dc5a23ad2c55e8d000` and loaded by NewTest, with mutation capabilities explicitly enabled by its operator for acceptance testing. Subsequent gap-closure source changes require a new load before their live results count. Keep mutation capabilities disabled on production servers until acceptance passes.
 
@@ -12,8 +18,7 @@ Implemented:
 - Compact ownership manifests (maximum 4,100 bytes), per-scope client suppression, guards for previously queued client work, 60-second server handover delays, and a 45-second initial client discovery grace period. Once coordination is seen, stale ownership does not resume local maintainers. Arbitrary scripts and old client versions cannot be coordinated; use updated clients for acceptance testing.
 - Server scheduling coalesces inventory/queue changes, conveyor and terminal-group changes, grid ownership, split/merge and completed connection changes. One profile is considered per 100 ms, with a configurable minimum service interval and a 15-second topology audit. Each pass defaults to four mutations. No-op services wait for dirtiness; uncertain mutations pause that profile until explicitly revised.
 - Owner run-now controls and status queries. Faction access for unattended endpoints is separately configurable and defaults off; anchor ownership remains mandatory. Missing/merged/changed scopes fail closed.
-- Explicit bottle-refill and idle-assembler-drain jobs with sender-bound status/cancel, one active job per sender/ship, 32 retained jobs globally, 120-second active deadlines and 60-second completed-result retention. Cancellation never rolls back game mutations. Jobs use current rights while the initiator is online; disconnected continuation requires anchor ownership and the configured principal relationship. Access loss otherwise interrupts work.
-- Refill stages one empty bottle at a time, checks definition-derived gas compatibility, requests native refill without toggling auto-refill, observes progress for up to five seconds, and returns the exact staged bottle to its original inventory. Changed/stranded bottles are reported with their block/inventory. Initially at most 16 source stacks are selected; a multi-bottle stack contributes one bottle per explicit pass. Partially filled bottles remain deliberately excluded.
+- Explicit idle-assembler-drain jobs with sender-bound status/cancel, one active job per sender/ship, 32 retained jobs globally, 120-second active deadlines and 60-second completed-result retention. Cancellation never rolls back game mutations. Jobs use current rights while the initiator is online; disconnected continuation requires anchor ownership and the configured principal relationship. Access loss otherwise interrupts work.
 - Revision-bound paged snapshots/uploads: 16 KiB raw pages, 16 pages / 256 KiB document maximum. Uploads are bound to sender, anchor, profile and base revision, retained for two minutes, limited to one per sender and 16 globally. Client page sequences reserve the request channel and pace pages at 1.2-second intervals. A complete upload commits only after current revision/ownership and schema validation.
 - Owner-only section patches; paged owned-profile catalog; explicit bind/recover and delete UI. Rebinding disables automation. Deletion archives the removed profile independently of ordinary `.bak` saves. Orphans are retained forever by default; opt-in day-based expiry archives at most one profile per audit, after a world-load grace period.
 - PluginSdk operator switches, service budgets, policy controls, orphan retention, request timing, refinery/queue counters and active-job/profile gauges.
@@ -24,10 +29,10 @@ Current limitations to exercise or refine during acceptance:
 
 - Large manual action payloads and individual section patches still obey the 48 KiB packet ceiling; paging is for profile fetch/publication. Reduce/split a section if it exceeds that ceiling.
 - Native graph traversal cost is not bounded internally; only call counts, enumerated scope sizes and mutation counts are bounded. Profile before increasing budgets. No measured conveyor speedup is claimed.
-- Refill tries the original inventory, then eligible Unified Cargo using the selected enabled policy and normal rights/exclusion/path checks. Pair and mutation budgets bound fallback attempts; failed or uncertain jobs identify the possibly stranded bottle. Utility jobs are not persisted across process restarts.
+- Utility jobs are not persisted across process restarts.
 - A metadata-only server status query reports current ownership and the latest scheduler result, not a detailed per-machine dashboard. The client component-target panel shows native machine-state/eligibility reasons. Shared production planning updates projected assembler workloads between assignments. Recipe discovery, eligibility and scope reads remain runtime adapters, not pure value planners.
 - A very late companion discovery after the standalone grace period cannot retract vanilla requests already sent. All automated clients must run a compatible build; programmable blocks and unrelated plugins remain outside this coordination mechanism.
-- New server paths, Quasar rendering, two-client ownership transitions, authorization races, save/restart and the full sorter/constraint/bottle matrix still require live testing against the newly published build. Prior live persistence-only evidence does not establish these results.
+- New server paths, Quasar rendering, two-client ownership transitions, authorization races, save/restart and the full sorter/constraint matrix still require live testing against the newly published build. Prior live persistence-only evidence does not establish these results.
 
 ### Gap-closure verification — 2026-09-05
 
@@ -136,6 +141,6 @@ Still not verified live: denied/faction/non-owner access (the successful owner w
 2. Add paged snapshots, granular revisioned patches, explicit bind/delete/orphan-recovery UI and retention policy. Publication currently retains server-only groups in the client UI; deleting those remotely needs an explicit operation.
 3. Live-verify the new default-off transfer milestone against vanilla decisions: both endpoints, same-logical-group separation, character/replication access, identity-aware conveyor direction/sorters/tube size, constraints, integral quantities, capacity, stateful stacks, cross-mechanical transfers and work-limit partial results. Profile native graph cost before raising the budgets. Extract the remaining pure planning calculations and add explicit authoritative rebalance without accepting client allocations.
 4. Add event-coalesced authoritative refinery, production and generic loadout schedulers. Only then advertise ownership of those loops and suspend corresponding client maintenance. Shared settings alone do not prevent two clients manually enabling competing local loops.
-5. Add explicit bounded bottle-refill and idle-assembler-drain jobs, with the planned no-progress/race checks and cancellation semantics.
+5. Add explicit bounded idle-assembler-drain jobs, with the planned no-progress/race checks and cancellation semantics.
 
 The complete roadmap and safety requirements remain in [SERVER_COMPANION_PLAN.md](SERVER_COMPANION_PLAN.md).

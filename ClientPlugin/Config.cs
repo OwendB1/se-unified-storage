@@ -19,7 +19,7 @@ public sealed class Config : INotifyPropertyChanged
     private InventoryScopeMode scopeMode = InventoryScopeMode.MechanicalGroups;
     private int transfersPerFrame = 4;
     private int reachabilityQueriesPerFrame = 8;
-    private int refreshDebounceMilliseconds = 150;
+    private int refreshDebounceMilliseconds;
     private int acknowledgementTimeoutMilliseconds = 3000;
 
     public readonly string Title = "Unified Storage";
@@ -61,7 +61,7 @@ public sealed class Config : INotifyPropertyChanged
         set => SetField(ref reachabilityQueriesPerFrame, value);
     }
 
-    [Slider(0, 1000, 25, SliderAttribute.SliderType.Integer, description: "Delay used to coalesce replicated inventory changes before rebuilding the projection.")]
+    [Slider(0, 50, 10, SliderAttribute.SliderType.Integer, description: "Maximum coalescing delay for inventory display updates (legacy values are capped at 50 ms). Zero refreshes next frame.")]
     public int RefreshDebounceMilliseconds
     {
         get => refreshDebounceMilliseconds;

@@ -5,7 +5,7 @@
     <FriendlyName>Unified Storage Server Companion</FriendlyName>
     <Author>Owen de Bree</Author>
     <Tooltip>Optional shared profiles, authoritative inventory actions and coordinated automation.</Tooltip>
-    <Description>Experimental Unified Storage companion for Magnetar. Provides authenticated, revisioned world-local profiles with paging and recovery tools; optional authoritative transfers and rebalance; owner-controlled refinery, component and loadout services; and cancellable bottle-refill and idle-assembler-drain jobs. Operator settings use Magnetar PluginSdk. Server mutation capabilities default off and unattended services also require explicit profile-owner opt-in. The client remains usable without the companion. Full multiplayer gameplay acceptance is pending; use a test server first.</Description>
+    <Description>Experimental Unified Storage companion for Magnetar. Provides authenticated, revisioned world-local profiles with paging and recovery tools; optional authoritative transfers and rebalance; owner-controlled refinery, component and loadout services; and cancellable idle-assembler-drain jobs. Operator settings use Magnetar PluginSdk. Server mutation capabilities default off and unattended services also require explicit profile-owner opt-in. The client remains usable without the companion. Full multiplayer gameplay acceptance is pending; use a test server first.</Description>
     <SourceDirectories>
         <Directory>ServerPlugin</Directory>
         <Directory>Shared</Directory>
