@@ -60,11 +60,15 @@ internal sealed class UtilityJobs
         {
             if (!PolicyEnabled(settings.Policy)) return new ActionReceipt { Failure = TransferFailure.PolicyDisabled };
             foreach (var operation in DrainAssemblerEngine.Plan(new InventoryProjectionBuilder().Build(scope), settings, Flags))
-            foreach (var allocation in operation.Plan.Allocations)
             {
-                if (job.Drain.Count >= Math.Max(1, Math.Min(128, config.AllocationsPerIntent)))
-                { job.Truncated = true; break; }
-                job.Drain.Enqueue((operation, allocation));
+                job.DrainRemaining[operation] = operation.Plan.RequestedAmount;
+                foreach (var allocation in operation.Plan.Allocations)
+                {
+                    if (job.Drain.Count >= Math.Max(1, Math.Min(128, config.AllocationsPerIntent)))
+                    { job.Truncated = true; break; }
+                    job.Drain.Enqueue((operation, allocation));
+                }
+                if (job.Truncated) break;
             }
         }
         else
@@ -108,13 +112,21 @@ internal sealed class UtilityJobs
             if (job.Drain.Count > 0)
             {
                 var work = job.Drain.Dequeue();
+                var remaining = job.DrainRemaining[work.Operation];
+                if (remaining <= 0) return;
                 if (!work.Operation.CanContinue || !PolicyEnabled(job.Settings.Policy))
                 { job.Receipt.Failure = TransferFailure.ScopeChanged; return; }
                 var source = job.Scope.Inventories.FirstOrDefault(member => ReferenceEquals(member.Inventory, work.Allocation.Source.Inventory));
                 var destination = work.Allocation.DestinationDescriptor;
                 if (source?.Inventory.GetItemByID(work.Allocation.Source.ItemId)?.Content.GetObjectId() != work.Allocation.Source.DefinitionId)
                 { job.Receipt.Failure = TransferFailure.StackChanged; return; }
-                if (Move(job, source, destination, work.Allocation.Source.ItemId, work.Allocation.Amount) > 0) job.Receipt.CompletedItems++;
+                var moved = Move(job, source, destination, work.Allocation.Source.ItemId,
+                    MyFixedPoint.Min(remaining, work.Allocation.Amount));
+                if (moved > 0)
+                {
+                    job.DrainRemaining[work.Operation] -= moved;
+                    job.Receipt.CompletedItems++;
+                }
                 return;
             }
             if (job.Filler != null)
@@ -263,6 +275,7 @@ internal sealed class UtilityJobs
         public InventoryDescriptor Original, Filler; public uint StagedId; public MyObjectBuilder_PhysicalObject StagedContent;
         public readonly UtilityJobReceipt Receipt = new() { Id = Guid.NewGuid() };
         public readonly Queue<(DrainAssemblerOperation Operation, PhysicalTransferAllocation Allocation)> Drain = new();
+        public readonly Dictionary<DrainAssemblerOperation, MyFixedPoint> DrainRemaining = new();
         public readonly Queue<(InventoryDescriptor Source, uint Id, MyDefinitionId Definition)> Bottles = new();
     }
 }

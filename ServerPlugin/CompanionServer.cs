@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using PluginSdk.Logging;
 using PluginSdk.Stats;
+using Sandbox;
 using Sandbox.Game.World;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
@@ -348,8 +350,21 @@ internal sealed class CompanionServer : IDisposable
     private void Saving(MyObjectBuilder_Checkpoint checkpoint) => store.Flush();
     public void Dispose()
     {
-        lock (gate) { disposed = true; inbound.Clear(); queued.Clear(); rates.Clear(); }
-        transport.UnregisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
+        lock (gate)
+        {
+            if (disposed) return;
+            disposed = true; inbound.Clear(); queued.Clear(); rates.Clear();
+        }
+        // Magnetar may dispose plugins off-thread. Do not let handler cleanup skip the final profile flush.
+        var game = MySandboxGame.Static;
+        if (game != null)
+        {
+            if (Thread.CurrentThread == game.UpdateThread)
+                transport.UnregisterSecureMessageHandler(CompanionProtocol.Channel, Receive);
+            else
+                game.Invoke(() => transport.UnregisterSecureMessageHandler(CompanionProtocol.Channel, Receive),
+                    "UnifiedStorage.UnregisterHandler");
+        }
         session.OnSavingCheckpoint -= Saving;
         session.Players.PlayersChanged -= PlayersChanged;
         automation.Dispose();

@@ -40,7 +40,17 @@ The client devfolder includes the component-target validation, live status refre
 - 21 live assertions passed for independent scope selection, suit/grid switching, search preserving selection, and two disable/re-enable cycles with working vanilla suit/grid controls. Re-enabling selected the accessed network on both sides.
 - The target and inventory screenshots were visually inspected at the current ultrawide resolution. No overlap appeared in the inspected layouts; this does not establish other resolutions, gamepad navigation or the complete flicker/performance matrix.
 
-Remaining acceptance requires loading the unpublished server changes through a temporary devfolder (or an explicitly approved test publication), then exercising bottle fallback and the remaining utility/scheduler paths. Two-client coordination and non-owner authorization need a second client/player. No full multiplayer acceptance or measured conveyor speedup is claimed.
+### Hub-loaded utility checks — 2026-09-05
+
+After the operator selected testing through the public hub, NewTest compiled and loaded `22764751f1ad57a4130cef3975b01b4a809dd714` on game 1.210.14 / .NET 10.0.11. The local client rejoined successfully after the unrelated auth service recovered. The temporary devfolder configuration did not survive the Quasar launch path; hub loading is the active verification route.
+
+- Bottle fallback passed through the plugin's **Refill** action. A bottle was staged from an initially empty connector, then 114 existing radio components occupied 7,980 of its 8,000 litres. The original could no longer fit the 120-litre bottle. The job returned the exact staged bottle to Unified Cargo, left the filler empty, and reported `InsufficientStock` because no ice was available. All 114 radio components were then returned to cargo (160 total), restoring the connector to empty.
+- With ice already available in the generator, a subsequent explicit refill completed: one bottle, three mutations, no failure. The cargo UI displayed that bottle at 100%; the generator consumed four units from the 400 spawned test ice. An earlier attempt before ice arrived correctly returned an unfilled bottle and reported partial rather than retrying indefinitely.
+- Idle drain moved the produced plate from assembler output into cargo (367 → 368), but incorrectly reported `StackChanged` afterwards. Source inspection confirmed that fallback allocations were still attempted after fulfilling the original request. The follow-up fix tracks remaining quantity per drain operation and skips exhausted work; it builds but needs a fresh-server replay.
+- Historical shutdown logs exposed a second defect: Magnetar's worker-thread disposal called the game-thread-only secure-handler unregister API, skipping subsequent cleanup and profile flush. The follow-up fix makes disposal idempotent and dispatches handler removal to the update thread when needed, while retaining synchronous profile flush. If the process stops before another update, the queued handler removal cannot run; process teardown releases it. Shutdown/save-restart verification remains required.
+- Server Release build, existing core checks, 215 temporary companion checks and whitespace validation pass after these fixes. These checks do not substitute for live replay of the two changed paths.
+
+Remaining acceptance includes fresh-server drain/shutdown checks, the remaining scheduler/authorization/lifecycle matrix, and two-client coordination. A second client/player is not currently confirmed. No full multiplayer acceptance or measured conveyor speedup is claimed.
 
 ## First milestone: persistence-only shared profiles
 
