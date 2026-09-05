@@ -33,6 +33,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
     private const float OwnerHeaderHeight = 0.045f;
     private const float SectionHeaderHeight = 0.031f;
     private const float ExpandedSectionHeaderHeight = 0.058f;
+    private const float SeparatorSpacing = 0.008f;
     private const float RoleHeaderHeight = 0.025f;
     private const float FooterHeight = 0.033f;
     private readonly List<MyGuiControlGrid> grids = new();
@@ -77,12 +78,13 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         BorderSize = 2;
         BorderMargin = new Vector2(0.002f);
         CanFocusChildren = true;
+        CanPlaySoundOnMouseOver = false;
 
         visibleRoles = GetVisibleRoles(projection, search, roleFilter);
         memberLayout = MemberLayout(visibleRoles, getFlags);
         var sections = visibleRoles.GroupBy(entry => entry.Role.Section).ToArray();
         var height = Padding * 2 + OwnerHeaderHeight + FooterHeight +
-                     sections.Sum(section => GetSectionHeaderHeight(section.Key)) +
+                     sections.Sum(section => GetSectionHeaderHeight(section.Key) + SeparatorSpacing * 2) +
                      visibleRoles.Sum(entry => RoleHeaderHeight + GridHeight(entry.Stacks.Count) + Padding);
         Size = new Vector2(0.392f, Math.Max(0.12f, height));
         var topLeft = Size * -0.5f + new Vector2(Padding, Padding);
@@ -92,24 +94,34 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             new Vector2(0.17f, 0.03f),
             originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
             openAreaItemsCount: 3,
-            toolTip: "Placement policy used by this scope's Rebalance actions")
+            toolTip: "Save this scope's placement policy immediately. Used for deposits and rebalance; choosing a policy alone does not move items. Loadout rules use their own policies.")
         {
-            Name = "UnifiedPolicy"
+            Name = "UnifiedPolicy",
+            CanPlaySoundOnMouseOver = false
         };
         foreach (DistributionPolicy value in Enum.GetValues(typeof(DistributionPolicy)))
-            policyCombo.AddItem((long)value, SplitWords(value.ToString()));
+            policyCombo.AddItem((long)value, SplitWords(value.ToString()), toolTip: value switch
+            {
+                DistributionPolicy.ExistingStackFirst => "Prefer inventories already holding this item, then use other eligible space.",
+                DistributionPolicy.FillFirst => "Fill eligible inventories in priority order before using the next container.",
+                _ => "Spread each item across eligible inventories, redistributing around capacity and block constraints."
+            });
         policyCombo.SelectItemByKey((long)policy, sendEvent: false);
         policyCombo.ItemSelected += () => policyChanged?.Invoke(this,
             (DistributionPolicy)policyCombo.GetSelectedKey());
         Elements.Add(policyCombo);
         Elements.Add(MakeButton("Groups", topLeft.X + 0.19f, topLeft.Y, 0.08f,
-            _ => groups(), "Create, edit and order inventory groups"));
+            _ => groups(), "Create, edit and order live inventory views. Groups alone do not move items; saved terminal-group names also match future members."));
         Elements.Add(MakeButton("Loadouts", topLeft.X + 0.28f, topLeft.Y, 0.094f,
-            _ => loadouts(), "Configure loadouts for any inventory group"));
+            _ => loadouts(), "Set item targets, supply and excess-return groups. Rule edits save settings; Apply loadouts starts transfers."));
 
+        var separators = new MyGuiControlSeparatorList();
+        Elements.Add(separators);
         var y = topLeft.Y + OwnerHeaderHeight;
         foreach (var section in sections)
         {
+            separators.AddHorizontal(new Vector2(topLeft.X, y + SeparatorSpacing * 0.5f), Size.X - Padding * 2);
+            y += SeparatorSpacing;
             var sectionRoles = section.Select(entry => entry.Role).ToArray();
             sectionBindings.Add(sectionRoles);
             var members = sectionRoles.SelectMany(role => role.Members).Select(member => member.OwnerEntityId).Distinct().Count();
@@ -128,9 +140,9 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 Size = new Vector2(0.14f, 0.025f)
             });
             Elements.Add(MakeButton("Manage", topLeft.X + 0.148f, y, 0.064f,
-                _ => manage?.Invoke(sectionRoles), "Configure member exclusions"));
+                _ => manage?.Invoke(sectionRoles), "Edit Manual, Reserved and cargo-destination exclusions for these members. Edits are buffered across rows until Apply saves them all."));
             var rebalanceButton = MakeButton("Rebalance", topLeft.X + 0.216f, y, 0.086f,
-                _ => rebalance?.Invoke(sectionRoles), "Redistribute this type using the selected policy");
+                _ => rebalance?.Invoke(sectionRoles), "Immediately redistribute items among eligible members of this section using the selected policy. Respects exclusions, capacity and conveyor access. Disabled while local transfers are pending or no item has multiple eligible members.");
             rebalanceButton.Enabled = Plugin.Instance.Transfers.PendingCount == 0 && sectionRoles.Any(role =>
                 role.Stacks.Any(stack => role.Members.Count(member =>
                     member.Roles.Any(candidate => candidate.Kind == role.Role &&
@@ -148,6 +160,8 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                     y + (feature == null ? 0f : 0.027f), 0.068f,
                     _ => utility?.Invoke(section.Key), UtilityTooltip(section.Key)));
             y += GetSectionHeaderHeight(section.Key);
+            separators.AddHorizontal(new Vector2(topLeft.X, y + SeparatorSpacing * 0.5f), Size.X - Padding * 2);
+            y += SeparatorSpacing;
 
             foreach (var entry in section)
             {
@@ -165,6 +179,9 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                 y += GridHeight(entry.Stacks.Count) + Padding;
             }
         }
+
+        if (sections.Length > 0)
+            separators.AddHorizontal(new Vector2(topLeft.X, y - Padding * 0.5f), Size.X - Padding * 2);
 
         totals = new MyGuiControlLabel(
             new Vector2(topLeft.X + 0.004f, Size.Y * 0.5f - FooterHeight),
@@ -306,8 +323,11 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         string text, float x, float y, float width, Action<MyGuiControlButton> click, string tooltip) =>
         new(new Vector2(x, y), MyGuiControlButtonStyleEnum.Rectangular, new Vector2(width, 0.026f),
             originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            toolTip: tooltip, text: new StringBuilder(text), textScale: 0.45f,
-            onButtonClick: click, isAutoscaleEnabled: true);
+            toolTip: UnifiedStorageHelp.Wrap(tooltip), text: new StringBuilder(text), textScale: 0.45f,
+            // Rebuilt headers can appear under a stationary pointer during bulk moves.
+            // Keep deliberate click sounds, but do not replay hover sounds on refresh.
+            onButtonClick: click, isAutoscaleEnabled: true)
+        { ShowTooltipWhenDisabled = true, CanPlaySoundOnMouseOver = false };
 
     private static string FeatureName(InventorySectionKey section) => section.Kind switch
     {
@@ -320,22 +340,24 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
 
     private static string UtilityName(InventorySectionKey section) => section.Kind switch
     {
-        InventorySectionKind.Refineries => "Drain ingots",
-        InventorySectionKind.Assemblers => "Drain idle",
+        InventorySectionKind.Refineries => "Drain",
+        InventorySectionKind.Assemblers => "Drain",
         _ => null
     };
 
     private static string FeatureTooltip(InventorySectionKey section) =>
         section.Kind == InventorySectionKind.Refineries
-            ? "Configure definition-derived ore priority and input sorting"
+            ? "Configure ship-wide ore priorities. Priority settings save immediately; Sort now reorders refinery input stacks."
             : section.Kind == InventorySectionKind.Assemblers
-                ? "Configure component production targets"
-                : "Configure definition-driven inventory loadouts";
+                ? "Set ship-wide component goals and supported assembler recipes. Save target saves the selected component; Craft deficits queues missing stock."
+                : section.Kind == InventorySectionKind.DefinitionFallback
+                    ? "Open the settings available for this block type, including loadouts and supported production controls."
+                    : "Configure item targets for this group's inventories, including supply, excess returns and optional maintenance.";
 
     private static string UtilityTooltip(InventorySectionKey section) =>
         section.Kind == InventorySectionKind.Refineries
-            ? "Move ingots from this ship's refinery outputs back to general cargo; leave input ores untouched"
-            : "Move inventory from this ship's idle assembly-mode assemblers back to general cargo";
+            ? "Immediately move ingots from this ship's refinery outputs into general cargo using the selected policy. Input ores stay untouched; refining may continue. Exclusions, access and capacity still apply."
+            : "Immediately return inventory from this ship's idle assembly-mode assemblers to general cargo. Queued, producing or disassembling machines are skipped. Exclusions, access and capacity still apply.";
 
     private static float GetSectionHeaderHeight(InventorySectionKey section) =>
         FeatureName(section) != null && UtilityName(section) != null

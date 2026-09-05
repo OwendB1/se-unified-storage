@@ -49,6 +49,7 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         inspect = Button("Inspect fetched", new Vector2(0.19f, 0.01f), Inspect, 0.22f); Controls.Add(inspect);
         Controls.Add(Label("Let my faction read the published profile", new Vector2(-0.36f, 0.1f)));
         faction = new MyGuiControlCheckbox(new Vector2(0.31f, 0.1f)); Controls.Add(faction);
+        faction.SetToolTip("Allow faction members to read the published settings. Takes effect only when Publish local succeeds; it does not grant inventory ownership or edit permission.");
         Controls.Add(Label("Publish includes targets, priorities, groups, exclusions and loadouts.", new Vector2(-0.36f, 0.17f)));
         Controls.Add(Label("Adopt keeps private groups; existing local settings are backed up.", new Vector2(-0.36f, 0.22f)));
         publish = Button("Publish local", new Vector2(-0.19f, 0.28f), Publish, 0.22f); Controls.Add(publish);

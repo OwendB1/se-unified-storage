@@ -138,6 +138,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     private DateTime nextScopePollUtc;
     private bool dirty;
     private bool disposed;
+    private readonly List<TransferOperationResult> rebalanceOperations = new();
 
     public UnifiedTerminalController(object vanillaController)
     {
@@ -183,6 +184,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     public void Deactivate()
     {
+        Plugin.Instance?.Transfers?.Cancel(rebalanceOperations);
+        rebalanceOperations.Clear();
         if (Plugin.Instance?.Transfers != null)
             Plugin.Instance.Transfers.OperationFinished -= TransferFinished;
         foreach (var session in sessions)
@@ -263,7 +266,10 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         ResetRadioButton(pane.SuitButton);
         ResetRadioButton(pane.GridButton);
         pane.Search = Get<MyGuiControlSearchBox>("BlockSearch" + prefix);
+        pane.Search.TextBox.SetToolTip("Filter this column by block or item name. Changes only the displayed results, not stored items.");
+        pane.Search.Controls.GetControlByName("SearchBoxClear")?.SetToolTip("Clear this column's search filter. Keeps the selected layout, scope and stored items unchanged.");
         pane.HideEmpty = Get<MyGuiControlCheckbox>("CheckboxHideEmpty" + prefix);
+        pane.HideEmpty.SetToolTip("Hide empty inventory sections in this column. Does not exclude them from transfers or automation.");
         pane.HideEmptyLabel = Get<MyGuiControlLabel>("LabelHideEmpty" + prefix);
         pane.ScopeSelector = new MyGuiControlCombobox(
             new Vector2(pane.IsLeft ? -0.46f : 0.0225f, -0.225f),
@@ -346,13 +352,17 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         pane.HideEmpty.Visible = pane.ShowGrid;
         pane.HideEmptyLabel.Visible = pane.ShowGrid;
         if (pane.SystemFilterOverlay != null)
-            pane.SystemFilterOverlay.Visible = pane.ShowGrid;
+            pane.SystemFilterOverlay.Visible = pane.ShowGrid && pane.Unified;
+        pane.SystemFilterButton?.SetToolTip(pane.Unified ? "Show gas and production systems" : "Show system inventories");
         foreach (var (button, _) in pane.FilterHandlers)
         {
             button.Enabled = pane.ShowGrid;
             button.Visible = pane.ShowGrid;
+            if (button.VisualStyle == MyGuiControlRadioButtonStyleEnum.FilterShip)
+                button.SetToolTip(pane.Unified ? "Show weapons, ship tools and safety systems" :
+                    "Show inventories on the accessed ship's mechanical construct, excluding connector-docked ships.");
         }
-        var scopeHeight = pane.ShowGrid && pane.ScopeChoices.Count > 1 ? 0.045f : 0f;
+        var scopeHeight = pane.Unified && pane.ShowGrid && pane.ScopeChoices.Count > 1 ? 0.045f : 0f;
         if (pane.ScopeSelector != null)
             pane.ScopeSelector.Visible = scopeHeight > 0;
         pane.List.Position = new Vector2(pane.IsLeft ? -0.46f : 0.4595f,
@@ -539,17 +549,21 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         var ownerControls = new List<MyGuiControlBase>();
         var gridCount = 0;
         var stackCount = 0;
-        var choice = UpdateScopeSelector(pane);
         if (!pane.Unified)
         {
-            var members = choice?.View.Projection.Roles.Where(role => RoleVisible(role, pane.Filter))
+            ApplyPaneLayout(pane);
+            var accessedGrid = (interacted as MyCubeBlock)?.CubeGrid ?? interacted as MyCubeGrid ?? interacted?.Parent as MyCubeGrid;
+            var members = sessions.Where(session => pane.Filter != PaneFilter.Ship || session.Scope.Grids.Contains(accessedGrid))
+                .SelectMany(session => session.Refresh().Roles)
                 .SelectMany(role => role.Members).Select(member => (MyEntity)member.Owner)
+                .Where(owner => NativeOwnerMatchesFilter(owner, pane.Filter))
                 .Distinct().OrderByDescending(owner => owner == interacted)
                 .ThenBy(owner => owner.DisplayNameText, StringComparer.CurrentCultureIgnoreCase)
-                .ThenBy(owner => owner.EntityId) ?? Enumerable.Empty<MyEntity>();
+                .ThenBy(owner => owner.EntityId);
             RebuildRealPane(pane, members.Where(owner => RealOwnerVisible(pane, owner, search)));
             return;
         }
+        var choice = UpdateScopeSelector(pane);
         if (choice != null)
         {
             var session = choice.Session;
@@ -976,11 +990,13 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         try
         {
             if (CompanionActions.TryRun(session.Scope, profiles[session], Shared.Companion.ShipAction.Rebalance,
-                roles.Select(role => Selection(session.Scope, role, viewId)).ToList())) return;
+                roles.Select(role => Selection(session.Scope, role, viewId)).ToList(),
+                canContinue: () => Active && !disposed)) return;
             RebalanceSection(session, roles);
         }
         catch (Exception exception)
         {
+            Plugin.Instance.Transfers.Cancel(rebalanceOperations);
             Plugin.Instance.Log.Error(exception, "Unified Storage rebalance failed");
             Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification(
                 "Unified Storage: rebalance failed. See the log for details.", 5000, "Red");
@@ -991,17 +1007,34 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         MechanicalInventorySession session,
         IReadOnlyList<InventoryRoleProjection> roles)
     {
+        if (Plugin.Instance.Transfers.PendingCount != 0)
+        {
+            MyAPIGateway.Utilities?.ShowNotification("Unified Storage: wait for the current transfer to finish.", 3000);
+            return;
+        }
         var profile = profiles[session];
         var plans = roles.SelectMany(role => TransferPlanFactory.Rebalance(role, profile.Policy, GetFlags))
-            .ToArray();
+            .Where(plan => plan.PlannedAmount > MyFixedPoint.Zero).ToArray();
         var sortRefineries = roles.Any(role => role.Members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery));
         var guard = InventoryGroups.Guard(session.Scope, profile, roles.Select(role => role.Section.GroupId));
+        rebalanceOperations.Clear();
         for (var index = 0; index < plans.Length; index++)
         {
             var isLast = index == plans.Length - 1;
-            Queue(plans[index], guard, "group membership changed; reapply rebalance",
-                sortRefineries && isLast ? _ => SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members)) : null);
+            var operation = Queue(plans[index], () => Active && guard(), "window closed or group membership changed; reapply rebalance",
+                sortRefineries && isLast ? result =>
+                {
+                    if (Active && result.Status == TransferOperationStatus.Complete &&
+                        rebalanceOperations.All(item => item.Status == TransferOperationStatus.Complete))
+                        SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members));
+                } : null);
+            operation.Quiet = true;
+            rebalanceOperations.Add(operation);
         }
+        if (rebalanceOperations.Count > 0)
+            MyGuiSandbox.AddScreen(new RebalanceJobScreen(rebalanceOperations.ToArray()));
+        else
+            MyAPIGateway.Utilities?.ShowNotification("Unified Storage: already balanced; no transfers needed.", 3000);
         if (sortRefineries && plans.Length == 0)
             SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members));
     }
@@ -1109,14 +1142,14 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             MyAPIGateway.Utilities?.ShowNotification("Unified Storage: transfer pending…", 750);
     }
 
-    private void Queue(
+    private TransferOperationResult Queue(
         TransferPlan plan,
         Func<bool> canContinue,
         string guardFailureMessage,
         Action<TransferOperationResult> completed = null)
     {
         if (plan.PlannedAmount <= MyFixedPoint.Zero)
-            return;
+            return null;
         // Retain profile objects, not the UI controller's session dictionary: jobs can
         // outlive the terminal, and exclusion edits must still take effect immediately.
         var flagProfiles = plan.Allocations.SelectMany(allocation => new[]
@@ -1128,7 +1161,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             flagProfiles.TryGetValue(descriptor, out var profile) && profile != null
                 ? profile.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex)
                 : InventoryManagementFlags.None;
-        Plugin.Instance.Transfers.Enqueue(
+        return Plugin.Instance.Transfers.Enqueue(
             plan,
             interacted,
             MySession.Static?.LocalPlayerId ?? 0L,
@@ -1149,6 +1182,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     }
 
 #pragma warning disable CS0618 // Required only as the documented safe display-filter fallback for unknown blocks.
+    private static bool NativeOwnerMatchesFilter(MyEntity owner, PaneFilter filter) =>
+        filter is PaneFilter.All or PaneFilter.Ship || owner.InventoryOwnerType() == FilterOwnerType(filter);
+
     private static bool RoleVisible(InventoryRoleProjection role, PaneFilter filter)
     {
         if (filter == PaneFilter.All)
@@ -1178,7 +1214,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     private void TransferFinished(TransferOperationResult result)
     {
         Plugin.Instance.Log.Info("Unified transfer {0}: {1}", result.Status, result.Message);
-        if (result.Status != TransferOperationStatus.Complete)
+        if (!result.Quiet && result.Status != TransferOperationStatus.Complete)
             Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification(
                 "Unified Storage: " + result.Message, 3500, "Red");
         SessionChanged();

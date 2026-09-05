@@ -12,7 +12,7 @@ namespace ClientPlugin.UI;
 internal static class CompanionActions
 {
     public static bool TryRun(MechanicalInventoryScope scope, ScopeProfile profile, ShipAction action,
-        List<InventorySelection> selections = null, string groupId = null)
+        List<InventorySelection> selections = null, string groupId = null, Func<bool> canContinue = null)
     {
         var client = Plugin.Instance.Companion;
         var capability = ShipActionIntent.Capability(action);
@@ -42,7 +42,9 @@ internal static class CompanionActions
                         var receipt = ProfileCodec.Decode<ActionReceipt>(response.Body);
                         if (receipt.JobId != Guid.Empty)
                         {
-                            Sandbox.Graphics.GUI.MyGuiSandbox.AddScreen(new CompanionJobScreen(scope.AnchorGrid.EntityId, terminal.EntityId, receipt.JobId));
+                            var screen = new CompanionJobScreen(scope.AnchorGrid.EntityId, terminal.EntityId, receipt.JobId,
+                                action == ShipAction.Rebalance ? canContinue : null);
+                            Sandbox.Graphics.GUI.MyGuiSandbox.AddScreen(screen);
                             return;
                         }
                         Notify($"{action}: {receipt.Mutations} changes; {receipt.Failure}. " + receipt.Detail);

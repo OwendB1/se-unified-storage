@@ -28,6 +28,7 @@ internal sealed class ProfileToolsScreen : UnifiedStorageScreen
         Controls.Add(Label("Explicit owner-only operations. Fetch again after a successful change.", new Vector2(-0.36f, -0.29f)));
         status = Label("List your profiles to recover, move or delete a binding.", new Vector2(-0.36f, -0.23f)); Controls.Add(status);
         profiles = new MyGuiControlCombobox(new Vector2(-0.10f, -0.15f), new Vector2(0.50f, 0.035f)); Controls.Add(profiles);
+        profiles.SetToolTip("Select an owned server profile from the current catalog page. Selection alone does not adopt, bind or delete it; use the explicit action buttons.");
         for (var index = 0; index < catalog.Profiles.Count; index++)
         {
             var value = catalog.Profiles[index];
@@ -41,6 +42,7 @@ internal sealed class ProfileToolsScreen : UnifiedStorageScreen
         Controls.Add(Button("Delete selected", new Vector2(0.19f, 0.00f), () => Lifecycle(true), 0.22f));
         Controls.Add(Label("Patch one settings section of the fetched ship profile from local settings:", new Vector2(-0.36f, 0.09f)));
         fields = new MyGuiControlCombobox(new Vector2(-0.13f, 0.16f), new Vector2(0.43f, 0.035f)); Controls.Add(fields);
+        fields.SetToolTip("Choose which server settings section Patch section will replace from local settings. Groups replaces the entire group list, not just matching entries.");
         foreach (ProfileFields field in Enum.GetValues(typeof(ProfileFields)))
             if (field is not (ProfileFields.None or ProfileFields.All)) fields.AddItem((long)field, field.ToString());
         fields.SelectItemByIndex(0);

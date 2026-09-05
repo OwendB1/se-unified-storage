@@ -21,7 +21,8 @@ public enum TransferOperationStatus
     Complete,
     Partial,
     Failed,
-    TimedOut
+    TimedOut,
+    Cancelled
 }
 
 public sealed class TransferOperationResult
@@ -36,6 +37,8 @@ public sealed class TransferOperationResult
     public TransferOperationStatus Status { get; internal set; }
     public MyFixedPoint MovedAmount { get; internal set; }
     public string Message { get; internal set; }
+    public bool Quiet { get; set; }
+    internal bool CancelRequested { get; set; }
 }
 
 public sealed class TransferExecutor
@@ -94,7 +97,7 @@ public sealed class TransferExecutor
                 active.InFlight = null;
                 active.NextAllocation++;
                 active.ConsecutiveFailures = 0;
-                if (active.Result.MovedAmount >= active.Plan.RequestedAmount)
+                if (!active.Result.CancelRequested && active.Result.MovedAmount >= active.Plan.RequestedAmount)
                 {
                     Finish(active, TransferOperationStatus.Complete,
                         $"{active.Result.MovedAmount} / {active.Plan.RequestedAmount} moved");
@@ -111,6 +114,12 @@ public sealed class TransferExecutor
             {
                 return;
             }
+        }
+
+        if (active.Result.CancelRequested)
+        {
+            Finish(active, TransferOperationStatus.Cancelled, "Cancelled; accepted transfers are not undone.");
+            return;
         }
 
         if (active.CanContinue != null && !active.CanContinue())
@@ -173,6 +182,24 @@ public sealed class TransferExecutor
                 (status == TransferOperationStatus.Partial && active.LastFailureReason != null
                     ? $": {active.LastFailureReason}"
                     : string.Empty));
+        }
+    }
+
+    // Cancel only this batch. An already sent request is still acknowledged before
+    // releasing the executor, so replacement work cannot race that request.
+    public void Cancel(IEnumerable<TransferOperationResult> batch)
+    {
+        var selected = new HashSet<TransferOperationResult>(batch);
+        if (active != null && selected.Contains(active.Result))
+            active.Result.CancelRequested = true;
+        var count = operations.Count;
+        for (var i = 0; i < count; i++)
+        {
+            var operation = operations.Dequeue();
+            if (selected.Contains(operation.Result))
+                Finish(operation, TransferOperationStatus.Cancelled, "Cancelled before sending.");
+            else
+                operations.Enqueue(operation);
         }
     }
 

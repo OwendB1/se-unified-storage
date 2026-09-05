@@ -61,6 +61,7 @@ internal sealed class InventoryGroupsScreen : UnifiedStorageScreen
             table.Add(row);
         }
         Controls.Add(table);
+        table.SetToolTip("Select a live inventory group to edit, duplicate, reorder or delete. These actions change saved views, not inventory contents.");
         Controls.Add(Label("Groups are views. Creating or editing one does not move items.", new Vector2(-0.36f, 0.15f)));
         Controls.Add(Button("New", new Vector2(-0.24f, 0.21f), () => Edit(null)));
         Controls.Add(Button("Edit", new Vector2(0, 0.21f), () => { if (Selected != null) Edit(Selected); }));
@@ -129,6 +130,7 @@ internal abstract class InventoryRuleEditor : UnifiedStorageScreen
         Controls.Add(Label(label, new Vector2(x, y - 0.035f)));
         var combo = new MyGuiControlCombobox(new Vector2(x, y), new Vector2(width, 0.04f),
             originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER, openAreaItemsCount: 6) { Name = name };
+        combo.SetToolTip(UnifiedStorageHelp.Field(label));
         var index = 0;
         foreach (var value in values) combo.AddItem(index++, value);
         if (index > 0) combo.SelectItemByIndex(Math.Max(0, Math.Min(selected, index - 1)));
@@ -142,12 +144,14 @@ internal abstract class InventoryRuleEditor : UnifiedStorageScreen
             Name = name, Size = new Vector2(width, 0.04f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
         };
+        box.SetToolTip(UnifiedStorageHelp.Field(label));
         Controls.Add(box); return box;
     }
     protected MyGuiControlCheckbox Check(string label, float x, float y, bool value)
     {
         var box = new MyGuiControlCheckbox(new Vector2(x, y))
         { IsChecked = value, OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER };
+        box.SetToolTip(UnifiedStorageHelp.Field(label));
         Controls.Add(box); Controls.Add(Label(label, new Vector2(x + 0.035f, y))); return box;
     }
 }

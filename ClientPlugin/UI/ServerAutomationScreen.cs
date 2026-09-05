@@ -29,6 +29,7 @@ internal sealed class ServerAutomationScreen : UnifiedStorageScreen
             var allowed = Plugin.Instance.Companion.Supports(modes[index]);
             Controls.Add(Label(names[index] + (allowed ? "" : " (operator paused)"), new Vector2(-0.34f, y)));
             var check = new MyGuiControlCheckbox(new Vector2(0.31f, y)) { IsChecked = (snapshot.Automation & modes[index]) != 0 };
+            check.SetToolTip($"Stage server ownership of {names[index].ToLowerInvariant()}. Apply ownership submits all checked services. Uses published settings; operator pauses do not return ownership to the client.");
             checks[modes[index]] = check; Controls.Add(check);
         }
         Controls.Add(Button("Sort now", new Vector2(-0.25f, 0.15f), () => run(ShipAction.SortRefineries), 0.15f));

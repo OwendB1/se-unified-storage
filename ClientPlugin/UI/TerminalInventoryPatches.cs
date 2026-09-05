@@ -26,16 +26,23 @@ internal sealed class UnifiedModeButton : MyGuiControlButton
             : active ? new Color(91, 115, 123) : new Color(41, 54, 62);
         var glyph = focus ? new Color(33, 41, 45) : highlight || active ? Color.White : new Color(146, 154, 160);
         background.A = glyph.A = (byte)(MathHelper.Clamp(transitionAlpha, 0, 1) * 255);
+        // Sprite positions are packed into HalfVector4 by Keen's renderer. Use one
+        // representable pixel grid for both columns, including on ultrawide displays.
+        var screenEdge = MyGuiManager.GetScreenCoordinateFromNormalizedCoordinate(Vector2.One);
+        var pixelStep = 1;
+        while (Math.Max(Math.Abs(screenEdge.X), Math.Abs(screenEdge.Y)) >= 2048f * pixelStep)
+            pixelStep *= 2;
         var center = MyGuiManager.GetScreenCoordinateFromNormalizedCoordinate(GetPositionAbsoluteCenter());
-        center = new Vector2((float)Math.Round(center.X), (float)Math.Round(center.Y));
+        center = new Vector2((float)Math.Round(center.X / pixelStep), (float)Math.Round(center.Y / pixelStep));
         var pixels = MyGuiManager.GetScreenSizeFromNormalizedSize(Size);
-        var unit = Math.Min(pixels.X, pixels.Y);
-        var side = Math.Max(12, 2 * (int)Math.Round(unit * 0.28f));
-        var stroke = Math.Max(2, (int)Math.Round(unit * 0.035f));
+        var unit = Math.Min(pixels.X, pixels.Y) / pixelStep;
+        var side = Math.Max(12 / pixelStep, 2 * (int)Math.Round(unit * 0.28f));
+        var stroke = Math.Max(1, (int)Math.Ceiling(Math.Max(2, Math.Round(unit * pixelStep * 0.035f)) / pixelStep));
         var origin = center - new Vector2(side / 2);
-        // Integer pixels and mirrored offsets keep all four cells and margins symmetric.
+        // Keep the frame, cutout and four cells on the same grid, not just the center.
         void Fill(int x, int y, int width, int height, Color color) => MyGuiManager.DrawSpriteBatch(
-            MyGuiConstants.BLANK_TEXTURE, (int)origin.X + x, (int)origin.Y + y, width, height, color);
+            MyGuiConstants.BLANK_TEXTURE, ((int)origin.X + x) * pixelStep, ((int)origin.Y + y) * pixelStep,
+            width * pixelStep, height * pixelStep, color);
         var mask = (int)Math.Ceiling(unit * 0.08f);
         Fill(-mask, -mask, side + mask * 2, side + mask * 2, background);
         Fill(0, 0, side, side, glyph);
@@ -47,9 +54,9 @@ internal sealed class UnifiedModeButton : MyGuiControlButton
             Fill(x == 0 ? inset : side - inset - cell, y == 0 ? inset : side - inset - cell, cell, cell, glyph);
         if (!Checked)
         {
-            var normalizedCenter = MyGuiManager.GetNormalizedCoordinateFromScreenCoordinate(center);
+            var normalizedCenter = MyGuiManager.GetNormalizedCoordinateFromScreenCoordinate(center * pixelStep);
             void Slash(int width, Color color) => MyGuiManager.DrawSpriteBatch(MyGuiConstants.BLANK_TEXTURE,
-                normalizedCenter, MyGuiManager.GetNormalizedSizeFromScreenSize(new Vector2(side * 1.5f, width)),
+                normalizedCenter, MyGuiManager.GetNormalizedSizeFromScreenSize(new Vector2(side * 1.5f, width) * pixelStep),
                 color, MyGuiDrawAlignEnum.HORISONTAL_CENTER_AND_VERTICAL_CENTER, rotation: -MathHelper.PiOver4);
             Slash(stroke * 3, background);
             Slash(stroke, glyph);
@@ -250,8 +257,8 @@ internal static class TerminalInventoryBridge
             SizeOverride = style.NormalTexture.MinSizeGui
         };
         toggle.SetToolTip(toggle.Checked
-            ? "Unified Storage on for this column. Click to show individual inventories."
-            : "Unified Storage off for this column. Click to combine inventories.");
+            ? "Unified Storage on for this column. Click to show individual inventories without changing the other column. Turning both off restores the original inventory controller."
+            : "Unified Storage off for this column. Click to combine this column's inventories. The other column keeps its current layout; items are not moved.");
     }
 
     private static void ToggleChanged(State state, bool isLeft)
