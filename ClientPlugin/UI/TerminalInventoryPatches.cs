@@ -245,8 +245,9 @@ internal static class TerminalInventoryBridge
         var style = MyGuiControlRadioButton.GetVisualStyle(MyGuiControlRadioButtonStyleEnum.FilterAll);
         state.Toggle.CustomStyle = new MyGuiControlButton.StyleDefinition
         {
-            NormalTexture = style.NormalTexture, HighlightTexture = style.HighlightTexture,
-            FocusTexture = style.FocusTexture, ActiveTexture = style.ActiveTexture,
+            // Use the bright palette on hover, not on the focus retained after a click.
+            NormalTexture = style.NormalTexture, HighlightTexture = style.FocusTexture,
+            FocusTexture = style.HighlightTexture, ActiveTexture = style.ActiveTexture,
             SizeOverride = style.NormalTexture.MinSizeGui
         };
         state.Toggle.SetToolTip(state.Toggle.Checked
