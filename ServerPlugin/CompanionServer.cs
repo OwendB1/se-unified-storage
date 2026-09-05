@@ -1,4 +1,5 @@
 using System;
+using ClientPlugin.Profiles;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -69,7 +70,7 @@ internal sealed class CompanionServer : IDisposable
         (config.ComponentAutomation ? CompanionCapabilities.ComponentAutomation : CompanionCapabilities.None) |
         (config.LoadoutAutomation ? CompanionCapabilities.LoadoutAutomation : CompanionCapabilities.None) |
         (config.UtilityJobs ? CompanionCapabilities.UtilityJobs : CompanionCapabilities.None) |
-        CompanionCapabilities.Coordination;
+        CompanionCapabilities.Coordination | CompanionCapabilities.GroupRules;
     // An OS clock correction must not make a pruned request executable again.
     private long ServerNow => utcOrigin + (long)((Stopwatch.GetTimestamp() - clockOrigin) *
         (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
@@ -268,6 +269,7 @@ internal sealed class CompanionServer : IDisposable
                     var submitted = ProfileCodec.Decode<SharedScopeProfile>(request.Body);
                     if (submitted.SchemaVersion != 1) throw new System.IO.InvalidDataException("Unsupported shared profile schema.");
                     ProfileCodec.Validate(submitted.Settings);
+                    InventoryGroupRecord.Migrate(submitted.Settings);
                     submitted.Settings.WorldId = string.Empty;
                     submitted.Settings.ScopeAnchorEntityId = existing?.AnchorEntityId ?? anchor.EntityId;
                     var value = new SharedScopeProfile

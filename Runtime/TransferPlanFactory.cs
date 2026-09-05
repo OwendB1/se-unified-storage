@@ -138,7 +138,7 @@ public static class TransferPlanFactory
                 continue;
             MyInventory.GetItemVolumeAndMass(itemId, out var itemMass, out var itemVolume);
             var snapshots = managedMembers
-                .Where(member => member.Roles.Any(candidate => candidate.Kind == role.Role && candidate.Accepts(itemId)))
+                .Where(member => role.Accepts(member, itemId))
                 .Select(member => new DestinationSnapshot(
                     member,
                     byInventory.TryGetValue(member.Inventory, out var current) ? current : MyFixedPoint.Zero,

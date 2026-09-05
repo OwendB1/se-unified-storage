@@ -64,7 +64,7 @@ internal static class InventoryDisplayOrder
             var ranks = order.Keys.Select((key, index) => (key, index)).ToDictionary(pair => pair.key, pair => pair.index);
             return new InventoryRoleProjection(role.Section, role.Role, role.Members,
                 stacks.OrderBy(stack => ranks[stack.DisplayKey]).ToArray(), role.CurrentMass,
-                role.CurrentVolume, role.MaxVolume, role.Group);
+                role.CurrentVolume, role.MaxVolume, role.Group, role.Accepts);
         }).ToArray();
         return new InventoryProjection(projection.Scope, roles);
     }

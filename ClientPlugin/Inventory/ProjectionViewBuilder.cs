@@ -103,7 +103,7 @@ public static class ProjectionViewBuilder
                 stacks,
                 inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.CurrentMass),
                 inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.CurrentVolume),
-                inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.MaxVolume), role.Group);
+                inventories.Aggregate(VRage.MyFixedPoint.Zero, (sum, inventory) => sum + inventory.MaxVolume), role.Group, role.Accepts);
         }).Where(role => role != null).ToArray();
         return new InventoryProjection(source.Scope, roles);
     }

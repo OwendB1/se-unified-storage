@@ -75,7 +75,7 @@ internal sealed class ProfileToolsScreen : UnifiedStorageScreen
         {
             // Send only the selected region; do not transmit an unrelated large profile for a small patch.
             var source = ProfileCodec.Clone(local);
-            var partial = new ScopeProfile { GroupSchemaVersion = 1 };
+            var partial = new ScopeProfile { GroupSchemaVersion = InventoryGroupRecord.SchemaVersion };
             switch (field)
             {
                 case ProfileFields.Policy: partial.Policy = source.Policy; break;

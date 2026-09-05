@@ -57,8 +57,7 @@ public sealed class TransferIntent
                 selection.BlockDefinition?.Length > 512 || selection.TerminalGroup?.Length > 512 ||
                 selection.NetworkRootId != 0 && !string.IsNullOrEmpty(selection.TerminalGroup))
                 throw new InvalidDataException("Invalid inventory selector.");
-            profile.Groups = new List<InventoryGroupRecord> { selection.Group };
-            ProfileCodec.Validate(profile);
+            ProfileCodec.ValidateGroup(selection.Group);
         }
     }
 }

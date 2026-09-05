@@ -6,6 +6,11 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\Shared\Profiles\*.cs" Link="Profiles\%(Filename)%(Extension)" />
+    <Compile Include="..\Shared\Companion\ProfileCodec.cs" Link="ProfileCodec.cs" />
+    <Compile Include="..\Shared\Companion\Protocol.cs" Link="Protocol.cs" />
+    <Compile Include="..\Shared\Companion\TransferIntent.cs" Link="TransferIntent.cs" />
+    <Compile Include="..\Shared\Companion\AutomationIntent.cs" Link="AutomationIntent.cs" />
     <Compile Include="..\ClientPlugin\UI\ListSelection.cs" Link="ListSelection.cs" />
     <Compile Include="..\Shared\Planning\DistributionPlannerCore.cs" Link="DistributionPlannerCore.cs" />
     <Compile Include="..\Runtime\WeaponCoreCompatibility.cs" Link="WeaponCoreCompatibility.cs" />

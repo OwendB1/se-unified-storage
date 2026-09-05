@@ -706,18 +706,18 @@ internal sealed class LoadoutRuleEditor : InventoryRuleEditor
     private void RefreshItems(bool chooseRole)
     {
         var group = profile.Groups.FirstOrDefault(g => g.Id == groupIds[(int)target.GetSelectedKey()]);
-        var members = InventoryGroups.Resolve(session.Refresh().Scope, group, out _);
+        var projected = group == null ? Array.Empty<InventoryRoleProjection>() : InventoryGroups.Build(session.Refresh(), new ScopeProfile
+        { GroupSchemaVersion = InventoryGroupRecord.SchemaVersion, Groups = new() { group } }).Roles.ToArray();
         if (chooseRole)
         {
-            var roles = members.SelectMany(m => m.Roles).Select(r => r.Kind)
-                .Where(r => group == null || group.AllRoles || group.Role == r).Distinct().ToArray();
+            var roles = projected.Select(r => r.Role).Distinct().ToArray();
             if (roles.Length > 0) role.SelectItemByKey((long)roles[0], sendEvent: false);
         }
         var roleKind = (InventoryRoleKind)role.GetSelectedKey();
         var restoringSavedItem = items == null && original != null;
         var previous = items != null && item.GetSelectedKey() >= 0 ? items[(int)item.GetSelectedKey()].ToString() : original?.ItemDefinitionId;
         items = MyDefinitionManager.Static.GetPhysicalItemDefinitions().Select(d => d.Id)
-            .Where(id => InventoryGroups.Accepts(group, id) && members.Any(m => m.Roles.Any(r => r.Kind == roleKind && r.Accepts(id))))
+            .Where(id => projected.Any(r => r.Role == roleKind && r.Accepts(id)))
             .OrderBy(Display, StringComparer.CurrentCultureIgnoreCase).ToList();
         // Retain an unavailable saved item for repair, not an incompatible choice from another target/role.
         if (restoringSavedItem && MyDefinitionId.TryParse(previous, out var saved) && !items.Contains(saved)) items.Add(saved);

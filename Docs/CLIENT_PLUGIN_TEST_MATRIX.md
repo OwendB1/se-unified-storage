@@ -88,6 +88,15 @@ Use both a local world and an unmodified multiplayer server.
 - Drain an idle assembly-mode assembler, then repeat while adding a queue entry or switching to disassembly after clicking. Confirm the live guard skips it without changing its queue or mode.
 - Drain ingots from active and idle vanilla/modded refineries. Verify only output ingots move to general cargo, ore input and any non-ingot outputs remain unchanged, and totals are conserved. Exercise empty outputs, full cargo, blocked sorters, disconnect/removal, and Manual/Reserved changes after enqueue. Repeat without a companion and with the currently deployed older companion; no unsupported wire intent should be sent. Confirm Priority and Drain reserve separate header rows without overlapping inventory titles.
 
+## Multi-rule group editor — pending live acceptance
+
+- Inventory groups → Edit opens a rules table, not the individual rule dropdown form. Presets and migrated groups contain one row. Add/Edit opens the rule form; Save rule returns to the list. Confirm columns/tooltips, long modded definition names, scrolling and footer spacing at the active resolution.
+- Rename, add/edit multiple rules, duplicate and Ctrl/Shift-remove rows. Parent Apply persists everything; Cancel/Escape/X discards everything, including changes returned from child dialogs. Typing a name survives table rebuilds. Reopen/restart preserves applied rules. Empty groups match nothing.
+- Combine two terminal-group rules restricted to different ammo types; include duplicate/overlapping rows. Counts and capacity must not double. Drag deposits, rebalance and loadout supply/return must never move one rule's ammo into another rule's blocks. Repeat with mixed roles and two mechanical ships.
+- Add blocks to a saved terminal-group name; verify membership refresh. Rename/remove that terminal group while a transfer is queued; the group pauses and the guard stops further work. Restore the name and verify recovery without rewriting IDs.
+- Publish/fetch/adopt and patch Groups through an updated companion; repeat transfers/rebalance/loadouts with the same row associations. Against an older companion, no new mutation intent/profile exchange is sent, ordinary inventory requests still work, and server-owned automation still suppresses local maintenance.
+- Automated checks cover original XML field order, schema migration/idempotence, deep-copy drafts, multi-rule and empty-list serialization, role/item filter conjunction, and malformed/oversized rule rejection. These checks and successful builds do not establish in-game UI or multiplayer acceptance.
+
 ## Performance capture
 
 On a representative large station, record the same inventory-page open/close sequence in vanilla and Unified modes. Capture terminal-open wall time, rendered control count, allocations, average frame time, and worst frame. Repeat after an inventory content change and after a block add/remove. Confirm routine updates are event/debounce driven and transfer, sort, production, and bottle work issue at most one mutation while waiting for replicated state.

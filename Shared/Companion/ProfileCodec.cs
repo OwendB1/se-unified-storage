@@ -58,7 +58,7 @@ public static class ProfileCodec
 
     public static void Validate(ScopeProfile profile)
     {
-        if (profile == null || profile.GroupSchemaVersion != 1 || !Defined(profile.Policy) ||
+        if (profile == null || (profile.GroupSchemaVersion != 1 && profile.GroupSchemaVersion != InventoryGroupRecord.SchemaVersion) || !Defined(profile.Policy) ||
             profile.ComponentStartThreshold < 0 || profile.ComponentStartThreshold > 1 ||
             profile.Groups == null || profile.Groups.Count > 128 ||
             profile.Loadouts == null || profile.Loadouts.Count > 256 ||
@@ -68,10 +68,16 @@ public static class ProfileCodec
             throw new InvalidDataException("Invalid profile schema or limits.");
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in profile.Groups)
+        {
             if (group == null || !Text(group.Id, 128, true) || !ids.Add(group.Id) || !Text(group.Name, 128, true) ||
-                !Text(group.Value, 512) || !Text(group.ItemType, 256) || !Text(group.ItemDefinitionId, 512) ||
-                !Defined(group.Selector) || !Defined(group.Family) || !Defined(group.Role))
+                group.Rules?.Count > InventoryGroupRecord.MaxRules ||
+                (profile.GroupSchemaVersion == 1 ? group.Rules != null : group.Rules == null))
                 throw new InvalidDataException("Invalid or duplicate inventory group.");
+            foreach (var rule in group.EffectiveRules)
+                if (rule == null || !Text(rule.Value, 512) || !Text(rule.ItemType, 256) || !Text(rule.ItemDefinitionId, 512) ||
+                    !Defined(rule.Selector) || !Defined(rule.Family) || !Defined(rule.Role))
+                    throw new InvalidDataException("Invalid inventory group rule.");
+        }
         foreach (var target in profile.ComponentTargets)
             if (target == null || !Text(target.DefinitionId, 512, true) || !Text(target.BlueprintDefinitionId, 512) || !Amount(target.Amount))
                 throw new InvalidDataException("Invalid component target.");
@@ -94,6 +100,13 @@ public static class ProfileCodec
             if (list.Count > 512 || list.Any(id => !Text(id, 512, true))) throw new InvalidDataException("Invalid ore priorities.");
         EncodeDocument(profile);
     }
+
+    // Selections predate group schema versions; null Rules is the legacy single-rule representation.
+    public static void ValidateGroup(InventoryGroupRecord group) => Validate(new ScopeProfile
+    {
+        GroupSchemaVersion = group?.Rules == null ? 1 : InventoryGroupRecord.SchemaVersion,
+        Groups = new() { group }
+    });
 
     private static bool Defined<T>(T value) => Enum.IsDefined(typeof(T), value);
     private static bool Text(string value, int maximum, bool required = false) =>

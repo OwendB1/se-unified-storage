@@ -31,9 +31,8 @@ public static class LoadoutEngine
             error = "Item excluded by group";
             return Array.Empty<InventoryDescriptor>();
         }
+        members = InventoryGroups.Resolve(scope, group, out error, item, rule.Role);
         return members.Where(member => (includeUnavailable || Allowed(member, flags)) &&
-            member.Roles.Any(role => role.Kind == rule.Role && role.Accepts(item)) &&
-            (group.AllRoles || group.Role == rule.Role) &&
             (includeUnavailable || rule.IncludeNonWorking || member.Owner is not MyFunctionalBlock functional || functional.IsWorking) &&
             (rule.TargetKind switch
             {
@@ -94,9 +93,8 @@ public static class LoadoutEngine
             {
                 if (string.IsNullOrEmpty(id)) return Array.Empty<InventoryDescriptor>();
                 var group = profile.Groups.FirstOrDefault(g => g.Id == id);
-                return InventoryGroups.Resolve(scope, group, out _).Where(member => Allowed(member, getFlags) &&
-                    !protectedTargets.Contains(member.Inventory) && InventoryGroups.Accepts(group, item) &&
-                    member.Roles.Any(role => (group.AllRoles || role.Kind == group.Role) && role.Accepts(item))).ToArray();
+                return InventoryGroups.Resolve(scope, group, out _, item).Where(member => Allowed(member, getFlags) &&
+                    !protectedTargets.Contains(member.Inventory)).ToArray();
             }
             var deficits = new List<DestinationAllocation>();
             var surplus = new List<InventoryStackReference>();

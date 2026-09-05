@@ -79,6 +79,10 @@ public sealed partial class CompanionClient : IDisposable
             {
                 if (epoch != Guid.Empty && epoch != message.Epoch) FinishUnknown();
                 epoch = message.Epoch; Capabilities = message.Capabilities;
+                // Older companions would ignore Rules in selections. Keep coordination/status/cancel,
+                // but use standalone transfers and disable profile exchange until the server is updated.
+                if ((Capabilities & CompanionCapabilities.GroupRules) == 0)
+                    Capabilities &= CompanionCapabilities.Coordination;
                 if ((message.Capabilities & CompanionCapabilities.Coordination) != 0 || message.Body.Length != 0)
                 {
                     coordinationSeen = true; ownership = null;
@@ -116,6 +120,7 @@ public sealed partial class CompanionClient : IDisposable
     {
         var required = kind == MessageKind.Transfer ? CompanionCapabilities.Transfers :
             kind == MessageKind.Action || kind == MessageKind.JobStatus || kind == MessageKind.CancelJob || kind == MessageKind.AutomationStatus ? CompanionCapabilities.Coordination : CompanionCapabilities.SharedProfiles;
+        if (kind == MessageKind.Action) required |= CompanionCapabilities.GroupRules;
         if (!Supports(required) || pending != null || profileSequence && !sendingProfilePage || transport == null || completed == null) return false;
         var now = Stopwatch.GetTimestamp();
         var message = new CompanionMessage

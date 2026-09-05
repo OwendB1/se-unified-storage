@@ -1123,8 +1123,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         => Queue(plan, null, null);
 
     private static IEnumerable<InventoryDescriptor> Destinations(ProjectedGridContext context, MyDefinitionId item) =>
-        context.Role.Accepts(item) ? context.Role.Members.Where(member =>
-            member.Roles.Any(role => role.Kind == context.Role.Role && role.Accepts(item))) : Array.Empty<InventoryDescriptor>();
+        context.Role.Members.Where(member => context.Role.Accepts(member, item));
 
     private void QueueProjected(TransferPlan plan, params ProjectedGridContext[] contexts)
     {

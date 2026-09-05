@@ -8,7 +8,8 @@ namespace Shared.Companion;
 public enum CompanionCapabilities : ulong
 {
     None = 0, SharedProfiles = 1, Transfers = 2, RefineryAutomation = 4,
-    ComponentAutomation = 8, LoadoutAutomation = 16, UtilityJobs = 32, Coordination = 64, ProfileOperations = 128
+    ComponentAutomation = 8, LoadoutAutomation = 16, UtilityJobs = 32, Coordination = 64, ProfileOperations = 128,
+    GroupRules = 256
 }
 
 public enum MessageKind : byte { Hello, HelloAck, GetProfile, PublishProfile, Result, ProfileChanged, Transfer, Action, SetAutomation, JobStatus, CancelJob, ProfileOperation, AutomationStatus }

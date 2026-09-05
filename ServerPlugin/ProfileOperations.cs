@@ -73,7 +73,9 @@ internal sealed class ProfileOperations
             if (existing == null) { response.Code = ResultCode.NotFound; return; }
             if (operation.Fields == ProfileFields.None || (operation.Fields & ~ProfileFields.All) != 0) throw new InvalidDataException("Invalid patch fields.");
             ProfileCodec.Validate(operation.Settings);
+            InventoryGroupRecord.Migrate(operation.Settings);
             settings = ProfileCodec.Clone(existing.Settings);
+            InventoryGroupRecord.Migrate(settings);
             var value = operation.Settings;
             if ((operation.Fields & ProfileFields.Policy) != 0) settings.Policy = value.Policy;
             if ((operation.Fields & ProfileFields.Groups) != 0) settings.Groups = value.Groups;
@@ -113,6 +115,7 @@ internal sealed class ProfileOperations
             uploads.Remove(key);
         }
         ProfileCodec.Validate(settings);
+        InventoryGroupRecord.Migrate(settings);
         settings.WorldId = string.Empty; settings.ScopeAnchorEntityId = existing?.AnchorEntityId ?? anchor.EntityId;
         var updated = new SharedScopeProfile
         {

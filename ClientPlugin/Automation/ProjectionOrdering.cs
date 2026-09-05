@@ -33,7 +33,7 @@ public static class ProjectionOrdering
                 stacks,
                 role.CurrentMass,
                 role.CurrentVolume,
-                role.MaxVolume, role.Group);
+                role.MaxVolume, role.Group, role.Accepts);
         }).ToArray();
         return new InventoryProjection(projection.Scope, roles);
     }

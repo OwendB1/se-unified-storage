@@ -2,6 +2,7 @@ using ClientPlugin.Transfers;
 
 WeaponCoreCompatibilityChecks.Run();
 ListSelectionChecks.Run();
+InventoryGroupChecks.Run();
 
 static void Equal(long expected, long actual, string message)
 {

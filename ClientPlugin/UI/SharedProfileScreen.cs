@@ -137,7 +137,11 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         foreach (var target in value.ComponentTargets) text.AppendLine($"{target.DefinitionId}: {target.Amount}; blueprint: {target.BlueprintDefinitionId}");
         text.AppendLine("\nInventory groups (selectors, not stored membership):");
         foreach (var group in value.Groups)
-            text.AppendLine($"{group.Name} [{group.Id}]: {group.Selector} {group.Family} {group.Value}; role: {(group.AllRoles ? "all" : group.Role.ToString())}; items: {group.ItemType} {group.ItemDefinitionId}");
+        {
+            text.AppendLine($"{group.Name} [{group.Id}] (match any rule):");
+            foreach (var rule in group.EffectiveRules)
+                text.AppendLine($"  {rule.Selector} {rule.Family} {rule.Value}; role: {(rule.AllRoles ? "all" : rule.Role.ToString())}; items: {rule.ItemType} {rule.ItemDefinitionId}");
+        }
         text.AppendLine("\nLoadouts:");
         foreach (var rule in value.Loadouts)
             text.AppendLine($"{rule.GroupId}: {rule.Amount} {rule.ItemDefinitionId} ({(rule.PerMember ? "per inventory" : "group total")}); supply: {rule.SupplyGroupId}; return: {rule.ReturnGroupId}; {rule.Policy}");

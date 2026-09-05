@@ -187,7 +187,7 @@ internal sealed class AuthoritativeTransfers
         var scope = new MechanicalInventoryScope(terminal, anchor, grids.ToArray(), members);
         var profile = new ScopeProfile { GroupSchemaVersion = 1, Groups = new List<InventoryGroupRecord> { selection.Group } };
         guards.Add(InventoryGroups.Guard(scope, profile, new[] { selection.Group.Id }));
-        var selected = InventoryGroups.Resolve(scope, selection.Group, out var error);
+        var selected = InventoryGroups.Resolve(scope, selection.Group, out var error, item, selection.Role);
         if (error != null) throw new SelectionRejected(TransferFailure.ScopeChanged);
         HashSet<long> named = null;
         if (!string.IsNullOrEmpty(selection.TerminalGroup) &&
@@ -219,8 +219,7 @@ internal sealed class AuthoritativeTransfers
         return selected.Where(member => (named == null || named.Contains(member.OwnerEntityId)) &&
             (network == null || network.Contains(member.OwnerEntityId)) &&
             (string.IsNullOrEmpty(selection.BlockDefinition) || member.BlockDefinitionId.ToString() == selection.BlockDefinition) &&
-            (selection.InventoryIndex < 0 || member.InventoryIndex == selection.InventoryIndex) &&
-            InventoryGroups.Accepts(selection.Group, item) && member.Roles.Any(role => role.Kind == selection.Role && role.Accepts(item)))
+            (selection.InventoryIndex < 0 || member.InventoryIndex == selection.InventoryIndex))
             .OrderBy(member => member.OwnerEntityId).ThenBy(member => member.InventoryIndex).ToArray();
     }
 

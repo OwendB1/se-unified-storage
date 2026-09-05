@@ -146,9 +146,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             var rebalanceButton = MakeButton("Rebalance", topLeft.X + 0.216f, y, 0.086f,
                 _ => rebalance?.Invoke(sectionRoles), "Immediately redistribute items among eligible members of this section using the selected policy. Respects exclusions, capacity and conveyor access. Disabled while local transfers are pending or no item has multiple eligible members.");
             rebalanceButton.Enabled = Plugin.Instance.Transfers.PendingCount == 0 && sectionRoles.Any(role =>
-                role.Stacks.Any(stack => role.Members.Count(member =>
-                    member.Roles.Any(candidate => candidate.Kind == role.Role &&
-                                                   candidate.Accepts(stack.DefinitionId))) >= 2));
+                role.Stacks.Any(stack => role.Members.Count(member => role.Accepts(member, stack.DefinitionId)) >= 2));
             Elements.Add(rebalanceButton);
             rebalanceButtons.Add(rebalanceButton);
 
@@ -243,8 +241,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
             for (var j = 0; j < roles.Length; j++)
                 roles[j] = next[roleIndex++].Role;
             rebalanceButtons[i].Enabled = Plugin.Instance.Transfers.PendingCount == 0 && roles.Any(role =>
-                role.Stacks.Any(stack => role.Members.Count(member => member.Roles.Any(candidate =>
-                    candidate.Kind == role.Role && candidate.Accepts(stack.DefinitionId))) >= 2));
+                role.Stacks.Any(stack => role.Members.Count(member => role.Accepts(member, stack.DefinitionId)) >= 2));
         }
         UpdateTotals();
         return true;

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Xml;
 using System.Xml.Serialization;
+using ClientPlugin.Profiles;
 using PluginSdk.Logging;
 using Shared.Companion;
 
@@ -58,6 +59,7 @@ internal sealed class ScopeProfileStore
                     (profile.Automation & ~AutomationManifest.Modes) != 0)
                     throw new InvalidDataException("Invalid server profile identity.");
                 ProfileCodec.Validate(profile.Settings);
+                InventoryGroupRecord.Migrate(profile.Settings);
             }
             document = loaded;
         }

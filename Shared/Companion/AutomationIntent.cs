@@ -28,7 +28,7 @@ public sealed class ShipActionIntent
                 selection.InventoryIndex < -1 || selection.InventoryIndex > 255 || selection.BlockDefinition?.Length > 512 ||
                 selection.TerminalGroup?.Length > 128 || selection.NetworkRootId != 0 && !string.IsNullOrEmpty(selection.TerminalGroup))
                 throw new InvalidDataException("Invalid action selection.");
-            ProfileCodec.Validate(new ScopeProfile { GroupSchemaVersion = 1, Groups = new() { selection.Group } });
+            ProfileCodec.ValidateGroup(selection.Group);
         }
         if (Action == ShipAction.Rebalance && Selections.Count == 0)
             throw new InvalidDataException("Rebalance requires explicit selected rows.");

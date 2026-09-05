@@ -71,6 +71,7 @@ public sealed class ProjectedInventoryStack
 
 public sealed class InventoryRoleProjection
 {
+    private readonly Func<InventoryDescriptor, MyDefinitionId, bool> acceptsMember;
     internal InventoryRoleProjection(
         InventorySectionKey section,
         InventoryRoleKind role,
@@ -79,7 +80,8 @@ public sealed class InventoryRoleProjection
         MyFixedPoint currentMass,
         MyFixedPoint currentVolume,
         MyFixedPoint maxVolume,
-        InventoryGroupRecord group = null)
+        InventoryGroupRecord group = null,
+        Func<InventoryDescriptor, MyDefinitionId, bool> acceptsMember = null)
     {
         Section = section;
         Role = role;
@@ -89,11 +91,15 @@ public sealed class InventoryRoleProjection
         CurrentVolume = currentVolume;
         MaxVolume = maxVolume;
         Group = group;
+        this.acceptsMember = acceptsMember;
     }
 
     public InventorySectionKey Section { get; }
     public InventoryGroupRecord Group { get; }
-    public bool Accepts(MyDefinitionId item) => InventoryGroups.Accepts(Group, item);
+    public bool Accepts(MyDefinitionId item) => Members.Any(member => Accepts(member, item));
+    public bool Accepts(InventoryDescriptor member, MyDefinitionId item) =>
+        (acceptsMember?.Invoke(member, item) ?? InventoryGroups.Accepts(Group, item)) &&
+        member.Roles.Any(role => role.Kind == Role && role.Accepts(item));
     public InventoryRoleKind Role { get; }
     public IReadOnlyList<InventoryDescriptor> Members { get; }
     public IReadOnlyList<ProjectedInventoryStack> Stacks { get; }
