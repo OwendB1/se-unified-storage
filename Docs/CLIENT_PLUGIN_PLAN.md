@@ -73,19 +73,21 @@ The Refinery Input rows are rendered in the effective priority order rather than
 
 Priority sorting and **Rebalance** are different operations. Sorting changes stack order inside each refinery and therefore its processing order; it does not move ore between refineries. Rebalance redistributes ore between refinery inputs using the selected placement policy and then schedules a priority-sort pass for the inventories it changed.
 
-### Component target controls
+### Crafting target controls
 
-The **Assemblers** section adds a **Component Targets** area above its real Input and Output grids. This is a stock-looking production control, not another synthetic inventory and not a drag-and-drop endpoint. Each component row contains:
+The **Assemblers** section opens **Crafting targets**. This is a stock-looking production control, not another synthetic inventory and not a drag-and-drop endpoint. One row per craftable item contains:
 
 ```text
-component icon and name | in stock | already queued | target | remaining/status
+item icon and name | in stock | already queued | target | recipe | remaining/status
 ```
 
-The list contains only positive component outputs from blueprint classes supported by actual accessible assemblers in the selected scope. This includes modded recipes without a hard-coded name list and excludes loot-only components, such as plushies without a supported recipe. Search filters the list. A zero or blank target disables that row; previously saved unsupported targets remain persisted but inactive. Temporary machine state does not hide supported components: show power/working-state and eligibility reasons instead. The separate stock-style panel uses a 12-row table, target/blueprint editor, maintenance/threshold row and spaced footer actions. Live stock/queue/status updates preserve unsaved edits and selection.
+The list contains all positive physical-item outputs from blueprint classes supported by actual accessible assemblers in the selected scope: components, tools, ammunition, bottles, consumables and modded items where a supported recipe exists. Loot-only items remain excluded. Search filters the list. A zero or blank target disables that row; previously saved unsupported targets remain persisted but inactive. Temporary machine state does not hide supported items: show power/working-state and eligibility reasons instead. The separate stock-style panel uses a 12-row table, target quantity editor, maintenance/threshold row and spaced footer actions. There is no blueprint dropdown. Recipes are selected automatically: a supported saved preference, the game's default, then the deterministic primary/single-output/priority ordering. The recipe column shows a single-line name with details on hover. Live stock/queue/status updates preserve unsaved quantities and selection.
+
+The legacy `ComponentTargets` XML fields and production action IDs remain for compatibility; their values now cover all craftable physical items. Both client and updated companion use the same discovery, stock counting and queue accounting. The `CraftingTargets` companion capability identifies expanded support. One-shot crafting uses the standalone path with older companions when locally owned; older server-owned maintenance remains components-only until the companion is updated or ownership is released.
 
 The header provides **Craft deficits**, an opt-in **Maintain targets** toggle, and a configurable start threshold. For example, a target of `10,000` with a `95%` threshold starts another batch below `9,500` and queues enough to return to `10,000`. This adopts ISY's useful margin concept without reproducing its LCD parser.
 
-The existing **Rebalance** button still applies only to the Assemblers Input and Output inventories. It never edits production queues. Component-target actions have their own controls because queueing production and redistributing inventory are materially different commands.
+The existing **Rebalance** button still applies only to the Assemblers Input and Output inventories. It never edits production queues. Crafting-target actions have their own controls because queueing production and redistributing inventory are materially different commands.
 
 ### Management exclusions
 

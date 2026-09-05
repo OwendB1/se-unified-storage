@@ -133,7 +133,7 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         text.AppendLine($"Refinery priorities: {(value.RefineryPriority.Automatic ? "Automatic" : "Manual")}");
         text.AppendLine("Pinned: " + string.Join(", ", value.RefineryPriority.PinnedDefinitionIds));
         text.AppendLine("Manual: " + string.Join(", ", value.RefineryPriority.ManualDefinitionIds));
-        text.AppendLine("\nComponent targets:");
+        text.AppendLine("\nCrafting targets:");
         foreach (var target in value.ComponentTargets) text.AppendLine($"{target.DefinitionId}: {target.Amount}; blueprint: {target.BlueprintDefinitionId}");
         text.AppendLine("\nInventory groups (selectors, not stored membership):");
         foreach (var group in value.Groups)

@@ -62,10 +62,11 @@ public static class ComponentTargetEngine
         var allBlueprints = GetBlueprints(assemblers)
             .Where(blueprint => assemblers.Any(assembler => assembler.CanUseBlueprint(blueprint)))
             .ToArray();
-        // Discover components from actual assembler capabilities, not the global item catalog.
-        // This includes modded recipes without offering loot-only components as targets.
+        // Discover physical outputs from actual assembler capabilities, not the global
+        // item catalog. Loot-only items remain excluded, including modded definitions.
         var componentIds = allBlueprints.SelectMany(blueprint => blueprint.Results)
-            .Where(output => output.Id.TypeId == typeof(MyObjectBuilder_Component) && output.Amount > MyFixedPoint.Zero)
+            .Where(output => output.Amount > MyFixedPoint.Zero &&
+                MyDefinitionManager.Static.TryGetPhysicalItemDefinition(output.Id, out _))
             .Select(output => output.Id)
             .Distinct()
             .OrderBy(DisplayName, StringComparer.CurrentCultureIgnoreCase)
@@ -134,8 +135,8 @@ public static class ComponentTargetEngine
                 ((MyProductionBlockDefinition)group.First().BlockDefinition).BlueprintClasses)
             .SelectMany(blueprintClass => blueprintClass)
             .Distinct()
-            .Where(blueprint => blueprint.Results.Any(result =>
-                result.Id.TypeId == typeof(MyObjectBuilder_Component)))
+            .Where(blueprint => blueprint.Results.Any(result => result.Amount > MyFixedPoint.Zero &&
+                MyDefinitionManager.Static.TryGetPhysicalItemDefinition(result.Id, out _)))
             .ToArray();
         BlueprintCache[key] = cached;
         return cached;
@@ -173,7 +174,9 @@ public static class ComponentTargetEngine
         var canonical = MyDefinitionManager.Static.TryGetBlueprintDefinitionByResultId(componentId);
         var index = AutomationPlannerCore.Blueprint(overrideId, canonical?.Id.ToString(),
             choices.Select(choice => (choice.Id.ToString(), choice.IsPrimary && choice.Results.Length == 1)).ToArray());
-        return index < 0 ? null : choices[index];
+        // With no recipe editor, prefer the game default, then the highest-priority
+        // supported recipe in the deterministic ordering above. Keep saved overrides.
+        return index < 0 ? choices.FirstOrDefault() : choices[index];
     }
 
     private static bool IsEligible(
@@ -238,8 +241,6 @@ public static class ComponentTargetEngine
             foreach (var item in descriptor.Inventory.GetItems())
             {
                 var id = item.Content.GetObjectId();
-                if (id.TypeId != typeof(MyObjectBuilder_Component))
-                    continue;
                 result[id] = (result.TryGetValue(id, out var value) ? value : MyFixedPoint.Zero) + item.Amount;
             }
         }
@@ -250,8 +251,7 @@ public static class ComponentTargetEngine
     {
         var result = new Dictionary<MyDefinitionId, MyFixedPoint>();
         foreach (var queueItem in assemblers.Where(assembler => !assembler.DisassembleEnabled).SelectMany(assembler => assembler.Queue))
-        foreach (var output in queueItem.Blueprint.Results.Where(output =>
-                     output.Id.TypeId == typeof(MyObjectBuilder_Component)))
+        foreach (var output in queueItem.Blueprint.Results.Where(output => output.Amount > MyFixedPoint.Zero))
             result[output.Id] = (result.TryGetValue(output.Id, out var value) ? value : MyFixedPoint.Zero) +
                                 output.Amount * queueItem.Amount;
         return result;

@@ -1075,7 +1075,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             if (members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery))
                 actions.Add(("Ship ore priority", () => MyGuiSandbox.AddScreen(new RefineryPriorityScreen(session, profile, GetFlags, () => SortRefineries(session)))));
             if (members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyAssembler))
-                actions.Add(("Ship component targets", () => MyGuiSandbox.AddScreen(new ComponentTargetsScreen(session, profile, GetFlags))));
+                actions.Add(("Crafting targets", () => MyGuiSandbox.AddScreen(new CraftingTargetsScreen(session, profile, GetFlags))));
             MyGuiSandbox.AddScreen(new InventoryGroupActionsScreen(actions));
             return;
         }
@@ -1086,7 +1086,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                     () => SortRefineries(session)));
                 break;
             case InventorySectionKind.Assemblers:
-                MyGuiSandbox.AddScreen(new ComponentTargetsScreen(session, profile, GetFlags));
+                MyGuiSandbox.AddScreen(new CraftingTargetsScreen(session, profile, GetFlags));
                 break;
             default:
                 MyGuiSandbox.AddScreen(new LoadoutScreen(session, projection, profile, section, GetFlags,

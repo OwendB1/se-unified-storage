@@ -4,6 +4,30 @@ WeaponCoreCompatibilityChecks.Run();
 ListSelectionChecks.Run();
 InventoryGroupChecks.Run();
 
+var crafting = ClientPlugin.Automation.AutomationPlannerCore.Production(new[]
+{
+    new ClientPlugin.Automation.ProductionTargetCore
+    {
+        Item = "MyObjectBuilder_AmmoMagazine/ModMagazine", Deficit = 7,
+        Outputs = new Dictionary<string, decimal> { ["MyObjectBuilder_AmmoMagazine/ModMagazine"] = 3, ["MyObjectBuilder_Ingot/ModIngot"] = 0.5m },
+        Assemblers = new[] { (1L, 0d, 1d) }
+    },
+    new ClientPlugin.Automation.ProductionTargetCore
+    {
+        Item = "MyObjectBuilder_Ingot/ModIngot", Deficit = 1,
+        Outputs = new Dictionary<string, decimal> { ["MyObjectBuilder_Ingot/ModIngot"] = 0.5m },
+        Assemblers = new[] { (1L, 0d, 1d) }
+    },
+    new ClientPlugin.Automation.ProductionTargetCore
+    {
+        Item = "MyObjectBuilder_PhysicalGunObject/Welder2Item", Deficit = 2,
+        Outputs = new Dictionary<string, decimal> { ["MyObjectBuilder_PhysicalGunObject/Welder2Item"] = 1 },
+        Assemblers = new[] { (1L, 0d, 1d) }
+    }
+});
+True(crafting.Count == 2 && crafting[0].Runs == 3 && crafting[1].TargetIndex == 2 && crafting[1].Runs == 2,
+    "crafting supports ammo batches and tool tiers while crediting fractional coproducts");
+
 True(ClientPlugin.UI.DefinitionLabels.SingleLine("\r\nBulletproof Glass\r\nBuild time: 0.5s\nRequires:\n5x Silicon", "fallback") == "Bulletproof Glass", "recipe dropdown uses one line");
 True(ClientPlugin.UI.DefinitionLabels.SingleLine("\u2028\t\u2029", "fallback") == "fallback", "empty recipe title falls back");
 True(ClientPlugin.UI.DefinitionLabels.Item("Welder", "MyObjectBuilder_PhysicalGunObject", "Welder2Item") == "Welder (Tier 2)", "tool tier remains selectable with shared names");

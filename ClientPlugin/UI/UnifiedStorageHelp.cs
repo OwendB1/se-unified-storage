@@ -18,7 +18,7 @@ internal static class UnifiedStorageHelp
     public static string Screen(string caption) => Wrap(caption switch
     {
         "Unified Storage members" => "Exclude inventories from bulk actions or stock counts. A dash indicates mixed values; an asterisk marks unsaved edits.",
-        "Component targets" => "Set ship-wide component stock goals. Ctrl/Shift select multiple components; Save target sets their common quantity while preserving individual recipes. Recipe editing requires one row. Craft deficits uses all saved targets.",
+        "Crafting targets" => "Set stock goals for assembler-craftable items. Current stock and queued output count toward each goal; recipes are selected automatically.",
         "Loadouts" => "Define desired contents for inventory groups. Rules choose their own supply, return group and distribution policy. Editing rules saves settings; Apply loadouts performs transfers.",
         "Edit loadout" => "Set stock targets and where to draw supplies or return excess. Maintained rules run automatically while connected.",
         "Refinery ore priority" => "Choose which ores refineries process first, automatically or with a manual order. Applies to this construct's refineries, including other conveyor networks. Sorting changes input order, not ore quantities.",
@@ -38,7 +38,7 @@ internal static class UnifiedStorageHelp
     {
         ("Unified Storage members", "Apply") => "Exclusions stay local until you publish a shared profile.",
         ("Unified Storage members", "Close") => null,
-        ("Component targets", "Close") => "Close without saving the selected component's unsaved quantity or recipe. Maintenance and start-threshold settings are saved on close.",
+        ("Crafting targets", "Close") => "Maintenance and start-threshold settings are saved on close.",
         ("Server utility job", "Close") => "Stop remaining work and close after the server responds. If cancellation cannot be confirmed, a warning explains that the job may still run. Accepted transfers are not undone.",
         ("Rebalance progress", "Close") => "Cancel this rebalance batch and close. Other operations are unaffected; a request already sent may still complete.",
         ("Rebalance progress", "Cancel job") => "Stop this rebalance batch and keep its results visible. Completed transfers are not rolled back; any request already sent is still acknowledged.",
@@ -58,8 +58,8 @@ internal static class UnifiedStorageHelp
         ("Refinery ore priority", "Move down") => "Lower selected ores in the manual or pinned list, keeping their relative order, and save. In automatic mode unpinned selected ores are first pinned.",
         ("Server automation ownership", "Sort now") => "Request a one-time server input sort using the published refinery priorities. Does not apply the ownership checkboxes.",
         (_, "Close") => null,
-        (_, "Save target") => "Save the entered quantity on every selected component, plus maintenance settings. Recipe changes apply only with one row selected. Zero disables selected goals. Save before changing selection.",
-        (_, "Craft deficits") => "Queue missing output for all saved component targets, accounting for current stock and existing assembler queues. Save an edited component target first; this action only saves the global maintenance settings.",
+        (_, "Save target") => "Zero disables the goal. Existing recipe preferences are retained.",
+        (_, "Craft deficits") => "Queue missing items for all saved targets, accounting for stock and existing assembler queues.",
         (_, "New rule") => null,
         (_, "Edit selected") => null,
         (_, "Delete selected") => "Delete all selected loadout rules and save immediately. Does not remove inventory items or undo transfers already submitted.",
@@ -74,7 +74,7 @@ internal static class UnifiedStorageHelp
         (_, "Sort now") => "Immediately sort refinery input stacks using saved ore priorities. Keeps ore quantities unchanged; does not fill or drain refineries.",
         (_, "Group loadouts") => "Configure item targets, supply and excess returns for this inventory group.",
         (_, "Ship ore priority") => "Choose which ores this construct's refineries process first. Sort now applies the order to their inputs.",
-        (_, "Ship component targets") => "Open ship-wide component goals and supported assembler recipes. Crafting uses saved targets.",
+        (_, "Crafting targets") => "Stock goals for items this construct's assemblers can produce.",
         (_, "Fetch current") => "Read this ship's current server profile and revision. Local settings remain unchanged. Requires an available companion.",
         (_, "Inspect fetched") => "Show the fetched profile's settings, revision and ownership without adopting or publishing anything. Fetch first.",
         (_, "Publish local") => "After confirmation, publish local groups, priorities, targets, exclusions and loadouts to this ship's server profile. Requires ownership and a current fetched revision.",
@@ -86,7 +86,7 @@ internal static class UnifiedStorageHelp
         (_, "Next page") => null,
         (_, "Bind to this ship") => "After confirmation, move the selected owned profile's binding to this mechanical ship. Rebinding disables server automation; it does not move inventories.",
         (_, "Patch section") => "After confirmation, replace the selected section of the fetched server profile with local settings. Other sections remain unchanged. Groups replaces the whole group list, including removal of server-only groups.",
-        (_, "Craft now") => "Request a one-time server crafting pass using published component targets. Does not publish local edits or apply ownership checkboxes.",
+        (_, "Craft now") => "Request a one-time server crafting pass using published targets. Does not publish local edits or apply ownership checkboxes.",
         (_, "Loadouts now") => "Request a one-time server transfer pass using published loadout rules. Does not publish local edits or apply ownership checkboxes.",
         (_, "Status") => "Read server automation ownership and execution status without changing settings or starting work.",
         (_, "Apply ownership") => "After confirmation, save all ownership checkboxes to the server profile. Uses published settings and a 60-second handover delay; may enable unattended work.",
@@ -116,9 +116,8 @@ internal static class UnifiedStorageHelp
         "Include non-working" => "Allow eligible non-working target blocks to receive their loadout. This does not bypass ownership, exclusions, constraints or conveyor checks.",
         "Automatic priority" => "Save immediately: order unpinned ores using definition-derived resource scarcity, after pinned ores. Uncheck to use the manual order.",
         "Auto-sort inputs" => "Save immediately: allow maintained refinery-input sorting while connected, unless the server owns this service. Does not pull more ore or drain outputs.",
-        "Target" => "Desired total stock of the selected component. Zero disables its goal. Save target before selecting another component; typing alone does not save.",
-        "Blueprint" => "Choose a recipe supported by this ship's assemblers for the selected component. Save target stores the recipe; choosing it does not queue production.",
-        "Maintain targets locally" => "Periodically queue deficits while connected, unless the server owns component maintenance. Saved by Save target, Craft deficits or closing this window.",
+        "Target" => "Desired total stock. Zero disables the goal.",
+        "Maintain targets locally" => "Periodically queue deficits while connected, unless the server owns crafting maintenance.",
         "Start threshold" => "Start crafting below this fraction of the target (0.01–1). Current stock plus queued output count toward the goal. Saved with global maintenance settings.",
         _ => null
     });

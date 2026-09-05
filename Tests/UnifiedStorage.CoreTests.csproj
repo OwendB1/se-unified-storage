@@ -14,6 +14,7 @@
     <Compile Include="..\ClientPlugin\UI\ListSelection.cs" Link="ListSelection.cs" />
     <Compile Include="..\ClientPlugin\UI\DefinitionLabels.cs" Link="DefinitionLabels.cs" />
     <Compile Include="..\Shared\Planning\DistributionPlannerCore.cs" Link="DistributionPlannerCore.cs" />
+    <Compile Include="..\Shared\Planning\AutomationPlannerCore.cs" Link="AutomationPlannerCore.cs" />
     <Compile Include="..\Runtime\WeaponCoreCompatibility.cs" Link="WeaponCoreCompatibility.cs" />
   </ItemGroup>
 </Project>

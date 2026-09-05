@@ -344,7 +344,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
         section.Kind == InventorySectionKind.Refineries
             ? "Choose which ores refineries process first. Priorities cover this construct's refineries; Sort now reorders their inputs."
             : section.Kind == InventorySectionKind.Assemblers
-                ? "Set ship-wide component goals and supported assembler recipes. Save target saves quantities for selected components; Craft deficits queues missing stock from all saved goals."
+                ? "Set stock goals for items this construct's assemblers can craft, including tools, ammunition and modded items."
                 : section.Kind == InventorySectionKind.DefinitionFallback
                     ? "Open the settings available for this block type, including loadouts and supported production controls."
                     : "Configure item targets for this group's inventories, including supply, excess returns and optional maintenance.";

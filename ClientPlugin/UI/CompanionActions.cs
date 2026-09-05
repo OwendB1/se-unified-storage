@@ -20,6 +20,9 @@ internal static class CompanionActions
         if (client?.AllowsLocal(scope.AnchorGrid, capability) == false)
         { Notify("Server owns this service, or ownership is unknown. Check Shared profile."); return true; }
         if (client?.Supports(capability) != true) return false;
+        // Older companions only evaluate component definitions. Keep ownership
+        // checks above, but use standalone crafting when this service is local.
+        if (action == ShipAction.QueueComponents && !client.Supports(CompanionCapabilities.CraftingTargets)) return false;
         if (client.Busy || CompanionJobScreen.HasPending || Plugin.Instance.Transfers.PendingCount != 0 || Plugin.Instance.ProductionQueue.PendingCount != 0 ||
             Plugin.Instance.RefinerySorts.PendingCount != 0)
         { Notify("Wait for the current inventory operation to finish."); return true; }

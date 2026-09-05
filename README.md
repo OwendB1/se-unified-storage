@@ -18,7 +18,7 @@ The current client implementation includes:
 - Existing Stack First, Fill First, and Even By Item placement/rebalance policies;
 - UI-managed Manual, Reserved, and No Unified Cargo Destination exclusions;
 - automatic/manual refinery ore priority and bounded physical input sorting;
-- component production targets with add-only assembler queueing and opt-in local maintenance;
+- table-only crafting targets for all supported assembler outputs (components, ammunition, tools and modded items), with add-only queueing and opt-in local maintenance;
 - generic loadouts with target/supply/return groups, overlap conflict protection, idle-assembler draining;
 - bounded, acknowledgement-driven execution with access, capacity, constraint, and vanilla-equivalent conveyor reachability checks before every transfer.
 

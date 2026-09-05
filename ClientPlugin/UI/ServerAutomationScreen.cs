@@ -22,7 +22,8 @@ internal sealed class ServerAutomationScreen : UnifiedStorageScreen
         Controls.Add(Label("Checked services belong to the server, even while paused by an operator.", new Vector2(-0.36f, -0.27f)));
         Controls.Add(Label("Published settings are used. Local edits must be published separately.", new Vector2(-0.36f, -0.21f)));
         var modes = new[] { CompanionCapabilities.RefineryAutomation, CompanionCapabilities.ComponentAutomation, CompanionCapabilities.LoadoutAutomation };
-        var names = new[] { "Refinery input sorting", "Component target maintenance", "Maintained group loadouts" };
+        var names = new[] { "Refinery input sorting", Plugin.Instance.Companion.Supports(CompanionCapabilities.CraftingTargets)
+            ? "Crafting target maintenance" : "Crafting targets (legacy: components only)", "Maintained group loadouts" };
         for (var index = 0; index < modes.Length; index++)
         {
             var y = -0.10f + index * 0.075f;

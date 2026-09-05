@@ -266,14 +266,13 @@ internal sealed class MemberManagementScreen : UnifiedStorageScreen
     }
 }
 
-internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
+internal sealed class CraftingTargetsScreen : UnifiedStorageScreen
 {
     private readonly MechanicalInventorySession session;
     private readonly ScopeProfile profile;
     private readonly Func<InventoryDescriptor, InventoryManagementFlags> getFlags;
     private MultiSelectTable table;
     private MyGuiControlTextbox target;
-    private MyGuiControlCombobox blueprint;
     private MyGuiControlCheckbox maintain;
     private MyGuiControlTextbox threshold;
     private MyGuiControlButton saveTarget;
@@ -281,11 +280,11 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
     private IReadOnlyList<ComponentTargetStatus> statuses;
     private string searchText = string.Empty;
 
-    public ComponentTargetsScreen(
+    public CraftingTargetsScreen(
         MechanicalInventorySession session,
         ScopeProfile profile,
         Func<InventoryDescriptor, InventoryManagementFlags> getFlags)
-        : base("Component targets")
+        : base("Crafting targets")
     {
         this.session = session;
         this.profile = profile;
@@ -300,10 +299,8 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             new Vector2(-0.36f, -0.32f),
             new Vector2(0.72f, 0.04f),
             MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER);
-        search.Name = "ComponentSearch";
-        search.SetToolTip("Filter supported components by name. Save the selected target before changing selection; this search does not queue production.");
-        search.TextBox.SetToolTip("Filter supported components by name. Save an edited target before changing the selection.");
-        search.Controls.GetControlByName("SearchBoxClear")?.SetToolTip("Clear the component-name filter. Does not delete saved targets or cancel crafting.");
+        search.Name = "CraftingSearch";
+        search.TextBox.SetToolTip("Filter craftable items by name or definition.");
         search.SearchText = searchText;
         search.OnTextChanged += value =>
         {
@@ -313,44 +310,34 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         Controls.Add(search);
         table = new MultiSelectTable
         {
-            Name = "ComponentTargets",
+            Name = "CraftingTargets",
             Position = new Vector2(-0.36f, -0.27f),
             Size = new Vector2(0.72f, 0.42f),
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
-            ColumnsCount = 5,
+            ColumnsCount = 6,
             VisibleRowsCount = 12
         };
-        table.SetCustomColumnWidths(new[] { 0.40f, 0.12f, 0.12f, 0.12f, 0.24f });
-        foreach (var (index, name) in new[] { "Component", "Stock", "Queued", "Target", "Status" }.Select((name, index) => (index, name)))
+        table.SetCustomColumnWidths(new[] { 0.29f, 0.10f, 0.10f, 0.10f, 0.20f, 0.21f });
+        foreach (var (index, name) in new[] { "Item", "Stock", "Queued", "Target", "Recipe", "Status" }.Select((name, index) => (index, name)))
             table.SetColumnName(index, new StringBuilder(name));
         table.SelectionChanged += LoadSelected;
         Controls.Add(table);
 
-        table.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Save target sets the entered quantity on all selected components. Recipe editing requires one row; batch edits preserve each component's recipe. Craft deficits uses all saved targets."));
+        table.SetToolTip("Only items craftable by this construct's assemblers. Recipes are chosen automatically; existing saved recipe choices are retained.");
 
         Controls.Add(Label("Target", new Vector2(-0.36f, 0.21f)));
         target = new MyGuiControlTextbox(new Vector2(-0.28f, 0.21f), "0", 18, type: MyGuiControlTextboxType.DigitsOnly)
         {
-            Name = "ComponentTargetQuantity",
+            Name = "CraftingTargetQuantity",
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
             Size = new Vector2(0.15f, 0.04f)
         };
         target.SetToolTip(UnifiedStorageHelp.Field("Target"));
         Controls.Add(target);
-        Controls.Add(Label("Blueprint", new Vector2(-0.10f, 0.21f)));
-        blueprint = new MyGuiControlCombobox(
-            new Vector2(0.01f, 0.21f), new Vector2(0.35f, 0.04f),
-            openAreaItemsCount: 8,
-            originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
-            isAutoscaleEnabled: true, isAutoEllipsisEnabled: true, minTextScale: 0.55f);
-        blueprint.Name = "ComponentBlueprint";
-        blueprint.SetToolTip(UnifiedStorageHelp.Field("Blueprint"));
-        blueprint.ShowTooltipWhenDisabled = true;
-        Controls.Add(blueprint);
 
         maintain = new MyGuiControlCheckbox(new Vector2(-0.36f, 0.28f))
         {
-            Name = "MaintainComponentTargets",
+            Name = "MaintainCraftingTargets",
             IsChecked = profile.MaintainComponentTargets,
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
         };
@@ -362,16 +349,16 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             profile.ComponentStartThreshold.ToString("0.##", CultureInfo.InvariantCulture),
             8, type: MyGuiControlTextboxType.Normal)
         {
-            Name = "ComponentStartThreshold",
+            Name = "CraftingStartThreshold",
             OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
             Size = new Vector2(0.1f, 0.04f)
         };
         Controls.Add(threshold);
         threshold.SetToolTip(UnifiedStorageHelp.Field("Start threshold"));
-        saveTarget = Button("Save target", new Vector2(-0.24f, 0.35f), SaveSelected);
+        saveTarget = Button("Save target", new Vector2(0.14f, 0.21f), SaveSelected, 0.20f);
         Controls.Add(saveTarget);
-        Controls.Add(Button("Craft deficits", new Vector2(0, 0.35f), Craft));
-        Controls.Add(Button("Close", new Vector2(0.24f, 0.35f), () => CloseScreen()));
+        Controls.Add(Button("Craft deficits", new Vector2(-0.14f, 0.35f), Craft, 0.20f));
+        Controls.Add(Button("Close", new Vector2(0.14f, 0.35f), () => CloseScreen()));
         PopulateTable(selectedComponents);
     }
 
@@ -383,8 +370,6 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         var selected = SelectedTargets.ToArray();
         var status = selected.FirstOrDefault();
         target.Enabled = saveTarget.Enabled = status != null;
-        blueprint.Enabled = selected.Length == 1;
-        blueprint.ClearItems();
         if (status == null)
         {
             target.Text = "0";
@@ -392,31 +377,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         }
         target.Text = selected.All(item => item.Target == status.Target)
             ? ((decimal)status.Target).ToString("0", CultureInfo.InvariantCulture) : "";
-        target.SetToolTip($"Quantity for {selected.Length} selected components. Blank with different values means mixed; enter a number to replace all selected targets. Zero disables them.");
-        saveTarget.SetToolTip($"Save the entered quantity for {selected.Length} selected components. With multiple rows selected, each recipe is preserved.");
-        blueprint.SetToolTip(selected.Length == 1 ? UnifiedStorageHelp.Field("Blueprint") : "Multiple components selected: recipes remain unchanged. Select one component to edit its recipe.");
-        for (var index = 0; index < status.BlueprintChoices.Count; index++)
-        {
-            var recipe = status.BlueprintChoices[index];
-            var description = recipe.DisplayNameText ?? recipe.Id.SubtypeName;
-            // Mods may put an entire recipe description in DisplayNameText. Native
-            // combo rows have a fixed height and do not clip multiline item labels.
-            var name = DefinitionLabels.SingleLine(description, recipe.Id.SubtypeName);
-            blueprint.AddItem(index, name,
-                toolTip: UnifiedStorageHelp.Wrap(description + "\n" + recipe.Id));
-        }
-        if (status.Blueprint != null)
-        {
-            var selectedBlueprint = -1;
-            for (var index = 0; index < status.BlueprintChoices.Count; index++)
-                if (ReferenceEquals(status.BlueprintChoices[index], status.Blueprint))
-                {
-                    selectedBlueprint = index;
-                    break;
-                }
-            if (selectedBlueprint >= 0)
-                blueprint.SelectItemByKey(selectedBlueprint, sendEvent: false);
-        }
+        target.SetToolTip("Desired stock. Zero disables the goal; a blank value indicates mixed targets.");
     }
 
     private void PopulateTable(IEnumerable<MyDefinitionId> selectedComponents = null)
@@ -437,6 +398,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             row.AddCell(new MyGuiControlTable.Cell(status.Stock.ToString()));
             row.AddCell(new MyGuiControlTable.Cell(status.Queued.ToString()));
             row.AddCell(new MyGuiControlTable.Cell(status.Target.ToString()));
+            row.AddCell(new MyGuiControlTable.Cell(RecipeName(status), toolTip: RecipeHelp(status)));
             row.AddCell(new MyGuiControlTable.Cell($"{status.Deficit} · {status.Status}", toolTip: status.Status));
             table.Add(row);
         }
@@ -467,13 +429,17 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             status.Queued = current.Queued;
             status.Deficit = current.Deficit;
             status.Status = current.Status;
+            status.Blueprint = current.Blueprint;
             row.GetCell(1).Text.Clear().Append(status.Stock);
             row.GetCell(2).Text.Clear().Append(status.Queued);
-            row.GetCell(4).Text.Clear().Append($"{status.Deficit} · {status.Status}");
+            row.GetCell(4).Text.Clear().Append(RecipeName(status));
             row.GetCell(4).ToolTip.ToolTips.Clear();
-            row.GetCell(4).ToolTip.AddToolTip(status.Status);
+            row.GetCell(4).ToolTip.AddToolTip(RecipeHelp(status));
+            row.GetCell(5).Text.Clear().Append($"{status.Deficit} · {status.Status}");
+            row.GetCell(5).ToolTip.ToolTips.Clear();
+            row.GetCell(5).ToolTip.AddToolTip(status.Status);
         }
-        // Keep the editor's unsaved quantity/recipe and the table's selection/scroll intact.
+        // Keep the unsaved quantity and the table's selection/scroll intact.
         return result;
     }
 
@@ -484,7 +450,7 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
             return;
         if (selected.Length > 1 && string.IsNullOrWhiteSpace(target.Text))
         {
-            Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Enter a quantity for the selected components. Use 0 to disable all selected goals.", 5000);
+            Sandbox.ModAPI.MyAPIGateway.Utilities?.ShowNotification("Enter a quantity for the selected items. Use 0 to disable their goals.", 5000);
             return;
         }
         var text = string.IsNullOrWhiteSpace(target.Text) ? "0" : target.Text;
@@ -504,13 +470,6 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
                 profile.ComponentTargets.Add(record);
             }
             record.Amount = Math.Max(0, decimal.Truncate(amount));
-            if (selected.Length == 1)
-            {
-                var blueprintIndex = blueprint.GetSelectedKey();
-                record.BlueprintDefinitionId = blueprintIndex >= 0 && blueprintIndex < status.BlueprintChoices.Count
-                    ? status.BlueprintChoices[(int)blueprintIndex].Id.ToString()
-                    : null;
-            }
         }
         SaveGlobalSettings();
         Plugin.Instance.Profiles.Save();
@@ -543,8 +502,14 @@ internal sealed class ComponentTargetsScreen : UnifiedStorageScreen
         return base.CloseScreen(isUnloading);
     }
 
-    private static string DisplayName(MyDefinitionId id) =>
-        MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText ?? id.SubtypeName;
+    private static string DisplayName(MyDefinitionId id) => DefinitionLabels.Item(
+        MyDefinitionManager.Static.GetPhysicalItemDefinition(id)?.DisplayNameText, id.TypeId.ToString(), id.SubtypeName);
+
+    private static string RecipeName(ComponentTargetStatus status) => status.Blueprint == null ? "Unavailable" :
+        DefinitionLabels.SingleLine(status.Blueprint.DisplayNameText, status.Blueprint.Id.SubtypeName);
+
+    private static string RecipeHelp(ComponentTargetStatus status) => status.Blueprint == null ? "No supported recipe." :
+        UnifiedStorageHelp.Wrap(status.Blueprint.DisplayNameText + "\n" + status.Blueprint.Id);
 
     private static MyGuiHighlightTexture? ComponentIcon(MyDefinitionId id)
     {
