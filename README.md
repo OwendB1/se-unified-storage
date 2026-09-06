@@ -22,6 +22,7 @@ The current client implementation includes:
 - automatic/manual refinery ore priority and bounded physical input sorting;
 - table-only crafting targets for all supported assembler outputs (components, ammunition, tools and modded items), with add-only queueing and opt-in local maintenance;
 - generic loadouts with target/supply/return groups, overlap conflict protection, idle-assembler draining;
+- previewed loadout BOM import from MGP Copy BoM and Isy finite Special-container targets;
 - bounded, acknowledgement-driven execution with access, capacity, constraint, and vanilla-equivalent conveyor reachability checks before every transfer.
 
 The plugin works fully client-only and does not require a programmable block, mod, script, or server plugin. Local automation runs only while that client is connected. The optional Magnetar companion adds revisioned shared settings, batched transfers/rebalance, server-owned refinery/production/loadout services, and explicit idle-assembler-drain jobs. All server mutation capabilities default off pending live acceptance. Unattended services additionally require profile-owner opt-in. See [SERVER_COMPANION_PLAN.md](Docs/SERVER_COMPANION_PLAN.md).
@@ -32,7 +33,26 @@ Client settings live under the game's `Storage/UnifiedStorage/`: `Config.xml` co
 
 To reuse settings, close the game, back up the destination grid's profile, and copy the desired `Groups`, `Loadouts`, `RefineryPriority` or `ComponentTargets` sections from another grid file. Keep the destination's `WorldId` and `ScopeAnchorEntityId`; do not duplicate an entire file under a second name with the same identity. Exact block IDs and inventory exclusions are ship-specific; named terminal groups and definition/type rules are reusable. Restart to load edits. Server-authoritative profiles remain in their separate companion store.
 
-Default layouts keep ore, ingots, components, ammunition, tools and other item categories together, preserving remembered positions within each category. Existing remembered layouts are grouped on upgrade; a subsequent drag opts that section into a fully custom order. Rebalance jobs stay unobtrusive for the first two seconds. Longer jobs show a compact cancellable progress window that closes on success; failures remain inspectable. Closing the terminal stops remaining local rebalance requests, including during the initial hidden period.
+Default layouts keep ore, ingots, components, ammunition, tools and other item categories together, preserving remembered positions within each category. Existing remembered layouts are grouped on upgrade; a subsequent drag opts that section into a fully custom order. Rebalance and local Drain jobs stay unobtrusive for the first two seconds. Longer jobs show a compact cancellable progress window that closes on success; failures remain inspectable. Closing the terminal stops remaining local rebalance and drain requests, including during the initial hidden period.
+
+### Inventory controls
+
+Double-click or Enter transfers a stack to the opposite column. Ctrl-click transfers 10, Shift-click 100, and Ctrl+Shift-click 1,000 (capped by the available amount); as in vanilla, these modifiers transfer on mouse-down instead of starting a drag. Left-drag moves a stack; right-drag opens the amount dialog. Dragging within a unified section changes its remembered display order, not physical stack splitting. Refinery input order remains controlled by ore priority. Native item-use actions and character-item dropping are available too.
+
+Controller A transfers on release; hold A for the amount dialog. LB/RB select 10/100, both select 1,000. Y uses supported character items, Menu drops, View deposits, X queues the selected item, stick clicks cycle inventory filters, and the game's move-item bindings reorder items. The center Build Planner/deposit/production buttons use Keen's native bulk actions, not the plugin's paced transfer queue or placement policy. Deposit/withdraw operate on the displayed columns and honor Unified Storage exclusions; production uses the accessed ship's native assembler selection.
+
+### Import a projection or Isy loadout
+
+Open **Loadouts → Import BOM**, choose distinct target and supply groups, then paste and inspect the preview. The exact [MGP Copy BoM format](https://github.com/viktor-ferenczi/se-multigrid-projector/blob/main/ClientPlugin/Extra/CraftProjection.cs) is one `Type/Subtype=quantity` entry per line, for example:
+
+```text
+Component/SteelPlate=120
+Component/Motor=30
+```
+
+Full `MyObjectBuilder_` prefixes and loaded modded item IDs also work. MGP exports projection requirements before subtracting cargo stock; imported quantities are **group totals**, so existing target stock counts toward them. Import replaces matching targets and preserves unrelated rules. It leaves maintenance and excess returns off; **Apply loadouts** starts the transfers. Rules are ordinary loadout records and can also be shared through the companion.
+
+[Isy's Special-container format](https://github.com/dorimanx/Isys-Inventory-Manager/blob/master/Script.cs) is supported for finite non-negative quantities, including its generated help header. `all`, negative/excess-only targets, percentages, duplicate entries, unknown definitions and incompatible target inventories are rejected with line-specific errors; they are not silently converted into different behavior. A profile supports up to 256 loadout rules.
 
 The client entry point is **Inventory groups → Shared profile**. Fetch, inspect, publish or adopt a revision; **Server automation** manages ownership and run-now/status requests; **Profile tools** supports section patches, binding recovery and archived deletion. Only the profile owner can publish; faction members may read when sharing and operator policy allow it. Adoption keeps unmatched private groups, writes a separate local backup, and leaves maintenance switches off. Paged profiles support up to 256 KiB. Multi-rule groups use group schema 2; update the companion for shared settings and accelerated actions. Without its `GroupRules` capability, the client keeps ownership coordination but uses standalone transfers and disables profile exchange. No companion means normal inventory operations remain available, with a discovery grace period before remembered client maintainers start.
 

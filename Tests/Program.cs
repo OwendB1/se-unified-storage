@@ -4,6 +4,17 @@ WeaponCoreCompatibilityChecks.Run();
 ListSelectionChecks.Run();
 InventoryGroupChecks.Run();
 
+var bom = ClientPlugin.Profiles.LoadoutBom.Parse("Component/SteelPlate=120\r\nMyObjectBuilder_Component/Motor=30\n# comment\nIngot/Iron=1.5");
+True(bom.Count == 3 && bom.All(entry => entry.Error == null), "MGP BOM, full IDs and decimal resources parse");
+True(bom[0].DefinitionId == "MyObjectBuilder_Component/SteelPlate" && bom[0].Amount == 120m,
+    "BOM preserves exact subtype and group-total quantity");
+True(ClientPlugin.Profiles.LoadoutBom.Parse("Component/SteelPlate=1\nComponent/SteelPlate=2")[1].Error != null,
+    "duplicate BOM entries are not silently overwritten");
+True(ClientPlugin.Profiles.LoadoutBom.Parse("Component/SteelPlate=All\nComponent/Motor=-1\nComponent/Plate=1,000")
+    .All(entry => entry.Error != null), "unsupported or ambiguous BOM targets fail visibly");
+True(ClientPlugin.Profiles.LoadoutBom.Parse("Special Container modes:\n\nPositive number: stores wanted amount, removes excess (e.g.: 100)\nNegative number: doesn't store items, only removes excess (e.g.: -100)\nKeyword 'all': stores all items of that subtype (like a type container)\nComponent/SteelPlate=120")
+    .Single().Amount == 120m, "Isy's generated Special-container help header is accepted");
+
 var roundShares = DistributionPlannerCore.PreferWholeUnits(10_000_000,
     Enumerable.Range(0, 3).Select(i => new DistributionCandidateCore(i, 0, 20_000_000)), 1, true);
 True(roundShares.Select(a => a.Amount).SequenceEqual(new long[] { 4_000_000, 3_000_000, 3_000_000 }),

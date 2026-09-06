@@ -141,6 +141,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     private readonly List<TransferOperationResult> rebalanceOperations = new();
     private readonly Stopwatch rebalanceElapsed = new();
     private bool rebalanceFeedbackShown;
+    private string jobName = "Rebalance", jobActivity = "Balancing";
 
     public UnifiedTerminalController(object vanillaController)
     {
@@ -170,6 +171,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         left.TypeGroup.SelectByIndex(0);
         right.TypeGroup.SelectByIndex(1);
         DisableVanillaCenterActions();
+        CreateThrowOutButton();
+        CreatePlannerButtons();
         CreateDragAndDrop();
         CreateSessions();
         Plugin.Instance.Transfers.OperationFinished += TransferFinished;
@@ -189,6 +192,13 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     public void Deactivate()
     {
+        controllerHeldGrid = null;
+        controllerTransfer = controllerAmount = null;
+        selectedInputGrid = null;
+        if (throwOut != null) controlsParent?.Controls.Remove(throwOut);
+        throwOut = null;
+        foreach (var button in plannerButtons) controlsParent?.Controls.Remove(button);
+        plannerButtons.Clear();
         Plugin.Instance?.Transfers?.Cancel(rebalanceOperations);
         rebalanceOperations.Clear();
         if (Plugin.Instance?.Transfers != null)
@@ -230,6 +240,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
     {
         if (!Active)
             return;
+        UpdateInventoryInput();
         UpdateRebalanceFeedback();
         if (DateTime.UtcNow >= nextScopePollUtc)
         {
@@ -331,7 +342,11 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             pane.FilterHandlers.Add((button, handler));
         }
         pane.FilterGroup.SelectByIndex(0);
-        pane.SearchChanged = _ => RebuildPane(pane);
+        pane.SearchChanged = _ =>
+        {
+            RebuildPane(pane);
+            pane.List.SetScrollBarPage();
+        };
         pane.Search.OnTextChanged += pane.SearchChanged;
         pane.HideChanged = _ => RebuildPane(pane);
         pane.HideEmpty.IsCheckedChanged += pane.HideChanged;
@@ -618,9 +633,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                 foreach (var grid in owner.Grids)
                 {
                     grid.ItemSelected += (_, _) => pane.FocusedProjected = grid.UserData as ProjectedGridContext;
-                    grid.ItemControllerAction = (sender, index, action, pressed) =>
-                        GamepadTransfer(pane, sender, index, action, pressed);
-                    grid.GamepadHelpText = "A: transfer amount";
+                    BindInventoryInput(pane, grid);
                 }
                 gridCount += owner.Grids.Count;
                 stackCount += projection.Roles.Sum(role => role.Stacks.Count);
@@ -634,6 +647,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             pane.FocusedReal = null;
         }
         pane.List.InitControls(ownerControls);
+        ClampScroll(pane.List);
         started.Stop();
         Plugin.Instance.Log.Debug(
             "Unified {0} pane rebuilt: {1} views, {2} grids, {3} projected stacks in {4:F2} ms",
@@ -660,24 +674,38 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         {
             var owner = new MyGuiControlInventoryOwner(entity, Vector4.One)
             {
-                Size = new Vector2(pane.List.Size.X - 0.05f, 0.1f),
                 OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER
             };
+            owner.Size = new Vector2(pane.List.Size.X - 0.05f, owner.Size.Y);
+            owner.SizeChanged += InventoryOwnerSizeChanged;
             foreach (var grid in owner.ContentGrids)
             {
                 grid.ItemDragged += (sender, args) => StartDragging(sender, args);
                 grid.ItemDoubleClicked += (sender, args) => RealItemDoubleClicked(pane, sender, args);
                 grid.ItemSelected += (sender, _) => pane.FocusedReal = sender;
                 grid.FocusChanged += (_, focused) => { if (focused) pane.FocusedReal = grid; };
-                grid.ItemControllerAction = (sender, index, action, pressed) =>
-                    GamepadTransfer(pane, sender, index, action, pressed);
-                grid.GamepadHelpText = "A: transfer amount";
+                BindInventoryInput(pane, grid);
                 if (pane.FocusedReal == null || ReferenceEquals(grid.UserData, focusedInventory))
                     pane.FocusedReal = grid;
             }
             controls.Add(owner);
         }
         pane.List.InitControls(controls);
+        ClampScroll(pane.List);
+    }
+
+    private static void InventoryOwnerSizeChanged(MyGuiControlBase owner)
+    {
+        if (owner.Owner is not MyGuiControlList list) return;
+        list.Recalculate();
+        ClampScroll(list);
+    }
+
+    private static void ClampScroll(MyGuiControlList list)
+    {
+        // Keen's scrollbar Init updates its limits without clamping its old value.
+        var scroll = list.GetScrollBar();
+        scroll.Value = scroll.Value;
     }
 
     private static bool RealOwnerVisible(Pane pane, MyEntity owner, string search)
@@ -771,6 +799,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void StartDragging(MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
     {
+        if (MyInput.Static.IsAnyCtrlKeyPressed() || MyInput.Static.IsAnyShiftKeyPressed()) return;
         if (args.ItemIndex < 0 || !grid.IsValidIndex(args.ItemIndex))
             return;
         var item = grid.GetItemAt(args.ItemIndex);
@@ -786,26 +815,26 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void ItemDropped(object sender, MyDragAndDropEventArgs args)
     {
-        if (args.DragFrom?.Grid == null || args.DropTo?.Grid == null)
+        if (args.DragFrom?.Grid == null) return;
+        if (args.DropTo?.Grid == null)
+        {
+            if ((dragAndDrop.IsEmptySpace() || dragAndDrop.DropToControls.Any(control => control == throwOut)) &&
+                args.Item?.UserData is MyPhysicalInventoryItem item)
+                DropCharacterItem(args.DragFrom.Grid, item);
             return;
+        }
         if (ReferenceEquals(args.DragFrom.Grid, args.DropTo.Grid) &&
             args.DragFrom.Grid.UserData is ProjectedGridContext context)
         {
-            if (InventoryDisplayOrder.IsPriorityDriven(context.Role))
-                MyAPIGateway.Utilities?.ShowNotification("Refinery input order is controlled by Ore Priority.", 3000);
-            else
-                InventoryDisplayOrder.Move(profiles[context.Owner.Session], context.Owner.ViewId, context.Role,
-                    args.DragFrom.Grid.GetItemAt(args.DragFrom.ItemIndex)?.UserData as ProjectedInventoryStack,
-                    args.DropTo.Grid.IsValidIndex(args.DropTo.ItemIndex)
-                        ? args.DropTo.Grid.GetItemAt(args.DropTo.ItemIndex)?.UserData as ProjectedInventoryStack : null);
-            SessionChanged();
+            ReorderProjected(context, args.DragFrom.ItemIndex, args.DropTo.ItemIndex);
             Refresh();
             return;
         }
         var amount = GetAmount(args.DragFrom.Grid, args.DragFrom.ItemIndex);
+        var originalItem = args.DragFrom.Grid.GetItemAt(args.DragFrom.ItemIndex)?.UserData;
         if (args.DragButton == MySharedButtonsEnum.Secondary)
             ShowAmountDialog(amount, GetDefinition(args.DragFrom.Grid, args.DragFrom.ItemIndex), value =>
-                ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, value, args.DropTo.ItemIndex));
+                ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, value, args.DropTo.ItemIndex, originalItem));
         else
             ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, amount, args.DropTo.ItemIndex);
     }
@@ -815,10 +844,12 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         int sourceIndex,
         MyGuiControlGrid destinationGrid,
         MyFixedPoint requestedAmount,
-        int destinationIndex = -1)
+        int destinationIndex = -1,
+        object originalItem = null)
     {
-        var item = sourceGrid.GetItemAt(sourceIndex);
-        if (item?.UserData is ProjectedInventoryStack projected)
+        if (!Active) return;
+        var item = originalItem ?? sourceGrid.GetItemAt(sourceIndex)?.UserData;
+        if (item is ProjectedInventoryStack projected)
         {
             if (destinationGrid.UserData is MyInventory realDestination)
             {
@@ -842,7 +873,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             return;
         }
 
-        if (item?.UserData is not MyPhysicalInventoryItem realItem ||
+        if (item is not MyPhysicalInventoryItem realItem ||
             sourceGrid.UserData is not MyInventory realSource)
             return;
         if (destinationGrid.UserData is MyInventory physicalDestination)
@@ -880,27 +911,6 @@ internal sealed partial class UnifiedTerminalController : IDisposable
                 profiles[destination.Owner.Session].Policy,
                 GetFlags), destination);
         }
-    }
-
-    private bool GamepadTransfer(
-        Pane sourcePane,
-        MyGuiControlGrid sourceGrid,
-        int index,
-        MyGridItemAction action,
-        bool pressed)
-    {
-        if (action != MyGridItemAction.Button_A || !pressed || !sourceGrid.IsValidIndex(index))
-            return false;
-        var targetPane = sourcePane.IsLeft ? right : left;
-        var destination = targetPane.ShowGrid && targetPane.Unified
-            ? targetPane.FocusedProjected?.Grid
-            : targetPane.FocusedReal;
-        if (destination == null)
-            return false;
-        var max = GetAmount(sourceGrid, index);
-        ShowAmountDialog(max, GetDefinition(sourceGrid, index),
-            amount => ExecuteTransfer(sourceGrid, index, destination, amount));
-        return true;
     }
 
     private static MyFixedPoint GetAmount(MyGuiControlGrid grid, int index)
@@ -954,34 +964,13 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         ProjectedGridContext source,
         MyGuiControlGrid.EventArgs args)
     {
-        var targetPane = sourcePane.IsLeft ? right : left;
-        if (!source.Grid.IsValidIndex(args.ItemIndex) ||
-            source.Grid.GetItemAt(args.ItemIndex)?.UserData is not ProjectedInventoryStack projected)
-            return;
-        if ((!targetPane.ShowGrid || !targetPane.Unified) && targetPane.FocusedReal?.UserData is MyInventory destination)
-        {
-            if (TryCompanionTransfer(projected, source, null, default, destination, null, projected.Amount)) return;
-            QueueProjected(TransferPlanFactory.Withdraw(projected, destination, projected.Amount, GetFlags), source);
-            return;
-        }
-        var target = targetPane.FocusedProjected;
-        if (target != null && TryCompanionTransfer(projected, source, null, default, null, target, projected.Amount)) return;
-        if (target != null)
-            QueueProjected(TransferPlanFactory.BetweenScopes(
-                projected,
-                projected.Amount,
-                Destinations(target, projected.DefinitionId),
-                profiles[target.Owner.Session].Policy,
-                GetFlags), source, target);
+        RealItemDoubleClicked(sourcePane, source.Grid, args);
     }
 
     private void RealItemDoubleClicked(Pane sourcePane, MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
     {
-        var targetPane = sourcePane.IsLeft ? right : left;
-        var target = targetPane.ShowGrid && targetPane.Unified
-            ? targetPane.FocusedProjected?.Grid : targetPane.FocusedReal;
-        if (target != null && grid.IsValidIndex(args.ItemIndex))
-            ExecuteTransfer(grid, args.ItemIndex, target, GetAmount(grid, args.ItemIndex));
+        if (!MyInput.Static.IsAnyCtrlKeyPressed() && !MyInput.Static.IsAnyShiftKeyPressed())
+            TransferOpposite(sourcePane, grid, args.ItemIndex, GetAmount(grid, args.ItemIndex));
     }
 
     private void Rebalance(
@@ -1018,7 +1007,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             .Where(plan => plan.PlannedAmount > MyFixedPoint.Zero).ToArray();
         var sortRefineries = roles.Any(role => role.Members.Any(member => member.Owner is Sandbox.Game.Entities.Cube.MyRefinery));
         var guard = InventoryGroups.Guard(session.Scope, profile, roles.Select(role => role.Section.GroupId));
-        rebalanceOperations.Clear();
+        BeginJobFeedback("Rebalance", "Balancing");
         for (var index = 0; index < plans.Length; index++)
         {
             var isLast = index == plans.Length - 1;
@@ -1032,12 +1021,19 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             operation.Quiet = true;
             rebalanceOperations.Add(operation);
         }
-        rebalanceFeedbackShown = false;
-        rebalanceElapsed.Restart();
         if (rebalanceOperations.Count == 0)
             MyAPIGateway.Utilities?.ShowNotification("Unified Storage: already balanced; no transfers needed.", 3000);
         if (sortRefineries && plans.Length == 0)
             SortRefineries(session.Scope, profile, roles.SelectMany(role => role.Members));
+    }
+
+    private void BeginJobFeedback(string name, string activity)
+    {
+        rebalanceOperations.Clear();
+        jobName = name;
+        jobActivity = activity;
+        rebalanceFeedbackShown = false;
+        rebalanceElapsed.Restart();
     }
 
     private void UpdateRebalanceFeedback()
@@ -1048,14 +1044,14 @@ internal sealed partial class UnifiedTerminalController : IDisposable
             rebalanceFeedbackShown = true;
             var complete = rebalanceOperations.Count(item => item.Status == TransferOperationStatus.Complete);
             MyAPIGateway.Utilities?.ShowNotification(complete == rebalanceOperations.Count
-                ? "Unified Storage: rebalance complete."
-                : $"Unified Storage: {complete}/{rebalanceOperations.Count} balanced. " +
+                ? $"Unified Storage: {jobName.ToLowerInvariant()} complete."
+                : $"Unified Storage: {jobName} {complete}/{rebalanceOperations.Count} complete. " +
                   rebalanceOperations.First(item => item.Status != TransferOperationStatus.Complete).Message, 5000);
         }
         else if (rebalanceElapsed.Elapsed.TotalSeconds >= 2)
         {
             rebalanceFeedbackShown = true;
-            MyGuiSandbox.AddScreen(new RebalanceJobScreen(rebalanceOperations.ToArray(), rebalanceElapsed));
+            MyGuiSandbox.AddScreen(new RebalanceJobScreen(rebalanceOperations.ToArray(), rebalanceElapsed, jobName, jobActivity));
         }
     }
 
@@ -1100,27 +1096,52 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         InventoryProjection projection,
         InventorySectionKey section)
     {
+        if (Plugin.Instance.Transfers.PendingCount != 0)
+        {
+            MyAPIGateway.Utilities?.ShowNotification("Unified Storage: wait for the current transfer to finish.", 3000);
+            return;
+        }
         var profile = profiles[session];
         // Utilities are explicitly ship-wide, not actions on possibly overlapping display rows.
         projection = session.Refresh();
         if (section.Kind == InventorySectionKind.Refineries)
         {
+            BeginJobFeedback("Drain", "Draining");
             // Uses bounded vanilla requests, including with older companions that lack this utility.
             foreach (var plan in DrainRefineryEngine.Plan(projection, profile,
                          descriptor => profile.GetFlags(descriptor.OwnerEntityId, descriptor.InventoryIndex)))
-                Queue(plan);
+                TrackDrain(plan);
+            NotifyEmptyDrain();
             return;
         }
         if (section.Kind == InventorySectionKind.Assemblers &&
             CompanionActions.TryRun(session.Scope, profile, Shared.Companion.ShipAction.DrainAssemblers)) return;
         if (section.Kind == InventorySectionKind.Assemblers)
         {
+            BeginJobFeedback("Drain", "Draining");
             foreach (var operation in DrainAssemblerEngine.Plan(projection, profile, GetFlags))
-                Queue(
+                TrackDrain(
                     operation.Plan,
                     () => operation.CanContinue,
                     "assembler is no longer idle in assembly mode");
+            NotifyEmptyDrain();
         }
+    }
+
+    private void TrackDrain(TransferPlan plan, Func<bool> canContinue = null, string failure = null)
+    {
+        failure ??= plan.GuardFailureMessage;
+        var operation = Queue(plan, () => Active && (canContinue?.Invoke() ?? true),
+            failure == null ? "inventory window closed" : "inventory window closed or " + failure);
+        if (operation == null) return;
+        operation.Quiet = true;
+        rebalanceOperations.Add(operation);
+    }
+
+    private void NotifyEmptyDrain()
+    {
+        if (rebalanceOperations.Count == 0)
+            MyAPIGateway.Utilities?.ShowNotification("Unified Storage: no eligible items to drain.", 3000);
     }
 
     private void SortRefineries(MechanicalInventorySession session)

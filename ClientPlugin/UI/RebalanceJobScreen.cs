@@ -15,10 +15,12 @@ internal sealed class RebalanceJobScreen : UnifiedStorageScreen
     private MyGuiControlLabel progress, detail, outcome;
     private MyGuiControlButton cancel;
     private bool cancelled;
+    private readonly string activity;
 
-    public RebalanceJobScreen(TransferOperationResult[] operations, Stopwatch elapsed)
-        : base("Rebalance progress", new Vector2(0.76f, 0.36f))
-    { this.operations = operations; this.elapsed = elapsed; }
+    public RebalanceJobScreen(TransferOperationResult[] operations, Stopwatch elapsed,
+        string name = "Rebalance", string activity = "Balancing")
+        : base(name + " progress", new Vector2(0.76f, 0.36f))
+    { this.operations = operations; this.elapsed = elapsed; this.activity = activity; }
 
     protected override void CreateControls()
     {
@@ -44,7 +46,7 @@ internal sealed class RebalanceJobScreen : UnifiedStorageScreen
         if (progress == null) return result;
         var pending = operations.Count(item => item.Status is TransferOperationStatus.Queued or TransferOperationStatus.Running);
         var done = operations.Length - pending;
-        progress.Text = $"{(pending == 0 ? cancelled ? "Stopped" : "Finished" : cancelled ? "Stopping" : "Balancing")}: " +
+        progress.Text = $"{(pending == 0 ? cancelled ? "Stopped" : "Finished" : cancelled ? "Stopping" : activity)}: " +
                         $"{done} / {operations.Length} item plans ({done * 100 / Math.Max(1, operations.Length)}%) · {elapsed.Elapsed:mm\\:ss}";
         var current = operations.FirstOrDefault(item => item.Status == TransferOperationStatus.Running);
         detail.Text = current == null ? "" :
