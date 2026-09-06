@@ -173,6 +173,7 @@ internal sealed class UnifiedInventoryOwnerControl : MyGuiControlBase
                     maxWidth: 0.37f));
                 var capacity = new MyGuiControlLabel(
                     new Vector2(topLeft.X + 0.004f, y + 0.022f),
+                    text: string.Empty,
                     textScale: 0.52f,
                     originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP,
                     isAutoEllipsisEnabled: true,
