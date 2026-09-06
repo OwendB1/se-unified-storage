@@ -1,6 +1,6 @@
 # Configurable groups and loadouts: live verification
 
-## Inventory input, layout and BOM follow-up (2026-09-06)
+## Inventory input and layout follow-up (2026-09-06)
 
 Local-only reproduction save, Linux Pulsar devfolder build, 3440×1440. Tests used the extracted copy at `/tmp/unified-repro-xKduZn/Red Ship Unified Inventory Bug Repro`, not the original attachment/world. No companion was required.
 
@@ -8,15 +8,16 @@ Local-only reproduction save, Linux Pulsar devfolder build, 3440×1440. Tests us
 - Empty unified search retained the policy, Groups and Loadouts controls above the list. Search resets the scroll page; rebuilds clamp stale offsets.
 - Ctrl-click moved exactly 10 Computers, Shift-click 100, and Ctrl+Shift-click 1,000. As in vanilla, these modifiers transfer on click rather than starting a drag. Right-drag opened the amount dialog and moved the entered 23. Double-click transferred ammunition and bottles in both directions. Enter returned the selected 10 Computers after restarting into the final build.
 - Restored native center actions through separate controls, without reconnecting the closed vanilla controller. Deposit All physically returned 1,087 Computers to cargo. Selected-item production was invoked without a crash, but successful assembler queueing was not established by this fixture.
-- MGP/Isy BOM import: native clipboard paste, left-aligned multiline editor, preview, replacement of an existing target, creation of another target, and persistence across a client restart checked. Unknown definitions and negative quantities produced two invalid rows and prevented import. Imported rules were group totals with maintenance and excess returns disabled; import did not start transfers.
 - Removed the two temporary loadout rules, restored Existing Stack First, returned the character's bottles, cleared injected input, and closed the terminal. The test copy retains 1,500 spawned Computers in Small Cargo Container 8 and the rebalanced cargo distribution. Original save/attachment unaffected.
-- Client Release build and core tests passed. Parser tests cover short/full definition IDs, the Isy help header, duplicates and unsupported quantity syntax. `git diff --check` passed.
+- Client Release build, core tests and `git diff --check` passed.
 
-Still unverified in this follow-up: controller hardware/hold gestures, item-use/drop shortcuts, completed Build Planner withdrawal/production, BOM import with a separate mod pack, companion profile exchange, and alternate resolutions. The controller and native-action paths are implemented, not certified by the mouse/keyboard results above. Native bulk actions retain native scheduling, rather than plugin transfer budgets/distribution policies.
+Still unverified in this follow-up: controller hardware/hold gestures, item-use/drop shortcuts, completed Build Planner withdrawal/production, companion profile exchange, and alternate resolutions. The controller and native-action paths are implemented, not certified by the mouse/keyboard results above. Native bulk actions retain native scheduling, rather than plugin transfer budgets/distribution policies.
 
-Temporary screenshots: `/tmp/unified-ux-empty.png`, `/tmp/unified-mixed-after-rebalance.png`, `/tmp/unified-vanilla-restored.png`, `/tmp/unified-bom-final.png`. These are local evidence, not committed fixtures.
+Temporary screenshots: `/tmp/unified-ux-empty.png`, `/tmp/unified-mixed-after-rebalance.png`, `/tmp/unified-vanilla-restored.png`. These are local evidence, not committed fixtures.
 
 Subsequent Drain feedback fix: local refinery/assembler drain operations now share the delayed, cancellable progress tracker and stop on terminal close. Client Release build, core tests and whitespace checks passed after this change; its long-job popup still needs an in-game retest. Companion drain jobs already use their separate progress screen and were not changed.
+
+Subsequent Ctrl-drag fix: Ctrl-click now waits for release to transfer ten items; Ctrl-drag opens the amount dialog without first moving ten. Ctrl held at drop also requests an amount. Shift and Ctrl+Shift behavior is unchanged. Client Release build, core tests and whitespace checks passed; the new gesture still needs an in-game retest. The earlier modifier-click evidence above predates this change.
 
 Run: 2026-09-04, Linux Pulsar, Space Engineers 1.210.014, 3440×1440.
 The original `Ship Core test world` was saved to a separate `Unified Storage E2E checkpoint` before inventory tests. Tests used the Sidewinder construct. These are live local-world results, not multiplayer certification.

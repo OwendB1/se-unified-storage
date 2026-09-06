@@ -570,10 +570,6 @@ internal sealed class LoadoutScreen : UnifiedStorageScreen
         rules.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp + " Delete affects all selected rules. Edit requires one row. Apply loadouts still runs all rules in this scope."));
         rules.RestoreSelection(Enumerable.Range(0, rules.RowsCount).Where(index => selected.Contains((LoadoutRecord)rules.GetRow(index).UserData)));
         Controls.Add(Label("Targets, supply and excess returns use configurable inventory groups.", new Vector2(-0.36f, 0.16f)));
-        var bom = Button("Import BOM", new Vector2(0.26f, 0.20f), () =>
-            MyGuiSandbox.AddScreen(new LoadoutBomScreen(session, profile, groupId, Save)), 0.18f);
-        bom.SetToolTip(UnifiedStorageHelp.Wrap("Import MGP Copy BoM or Isy-style item=quantity targets. Preview definitions and quantities before saving group-total loadout rules."));
-        Controls.Add(bom);
         Controls.Add(Button("New rule", new Vector2(-0.24f, 0.27f), () => Edit(null)));
         var edit = Button("Edit selected", new Vector2(0, 0.27f), () => { if (SelectedRules.Count() == 1) Edit(SelectedRules.Single()); });
         edit.SetToolTip("Edit one selected loadout. Select exactly one row to enable this action.");

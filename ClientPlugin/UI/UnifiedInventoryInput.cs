@@ -22,6 +22,10 @@ internal sealed partial class UnifiedTerminalController
     private int controllerPressedAt;
     private MyGuiControlGrid selectedInputGrid;
     private MyGuiControlButton throwOut;
+    private MyGuiControlGrid ctrlClickGrid;
+    private int ctrlClickIndex;
+    private Action ctrlClickTransfer;
+    private bool dragAmountRequested;
 
     private void BindInventoryInput(Pane pane, MyGuiControlGrid grid)
     {
@@ -38,6 +42,16 @@ internal sealed partial class UnifiedTerminalController
             Focus();
             var ctrl = MyInput.Static.IsAnyCtrlKeyPressed();
             var shift = MyInput.Static.IsAnyShiftKeyPressed();
+            if (ctrl && !shift && args.Button == MySharedButtonsEnum.Primary)
+            {
+                // Wait until release so Ctrl-drag does not also move ten items.
+                ctrlClickGrid = grid;
+                ctrlClickIndex = args.ItemIndex;
+                var item = grid.GetItemAt(args.ItemIndex)?.UserData;
+                var amount = MyFixedPoint.Min(GetAmount(grid, args.ItemIndex), 10);
+                ctrlClickTransfer = () => TransferOpposite(pane, grid, args.ItemIndex, amount, item);
+                return;
+            }
             if (ctrl || shift)
                 TransferOpposite(pane, grid, args.ItemIndex,
                     MyFixedPoint.Min(GetAmount(grid, args.ItemIndex), (shift ? 100 : 1) * (ctrl ? 10 : 1)));
@@ -45,6 +59,7 @@ internal sealed partial class UnifiedTerminalController
         grid.ItemAccepted += (_, args) => RealItemDoubleClicked(pane, grid, args);
         grid.ItemReleased += (_, args) =>
         {
+            if (ctrlClickTransfer != null && ctrlClickGrid == grid) return;
             if (MyInput.Static.IsAnyCtrlKeyPressed() || MyInput.Static.IsAnyShiftKeyPressed()) return;
             if (TryResolveUsableItem(grid, args.ItemIndex, out var inventory, out var item))
                 MyUsableItemHelper.ItemActivatedGridKeyboard(item, inventory, inventory.Owner as MyCharacter, args.Button);
@@ -93,6 +108,15 @@ internal sealed partial class UnifiedTerminalController
 
     private void UpdateInventoryInput()
     {
+        if (ctrlClickTransfer != null && !MyInput.Static.IsPrimaryButtonPressed())
+        {
+            var transfer = ctrlClickTransfer;
+            var clicked = ctrlClickGrid.IsMouseOver && ctrlClickGrid.MouseOverIndex == ctrlClickIndex;
+            ctrlClickTransfer = null;
+            ctrlClickGrid = null;
+            if (clicked && MyScreenManager.GetScreenWithFocus() is Sandbox.Game.Gui.MyGuiScreenTerminal)
+                transfer();
+        }
         var focused = MyScreenManager.FocusedControl as MyGuiControlGrid;
         if (focused != null && (focused.UserData is ProjectedGridContext || focused.UserData is MyInventory))
             selectedInputGrid = focused;

@@ -192,6 +192,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     public void Deactivate()
     {
+        ctrlClickTransfer = null;
+        ctrlClickGrid = null;
+        dragAmountRequested = false;
         controllerHeldGrid = null;
         controllerTransfer = controllerAmount = null;
         selectedInputGrid = null;
@@ -799,12 +802,15 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void StartDragging(MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
     {
-        if (MyInput.Static.IsAnyCtrlKeyPressed() || MyInput.Static.IsAnyShiftKeyPressed()) return;
+        if (MyInput.Static.IsAnyShiftKeyPressed()) return;
         if (args.ItemIndex < 0 || !grid.IsValidIndex(args.ItemIndex))
             return;
         var item = grid.GetItemAt(args.ItemIndex);
         if (item == null)
             return;
+        dragAmountRequested = MyInput.Static.IsAnyCtrlKeyPressed() || ctrlClickTransfer != null;
+        ctrlClickTransfer = null;
+        ctrlClickGrid = null;
         dragAndDrop.StartDragging(
             MyDropHandleType.MouseRelease,
             args.Button,
@@ -815,6 +821,9 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void ItemDropped(object sender, MyDragAndDropEventArgs args)
     {
+        var chooseAmount = dragAmountRequested || MyInput.Static.IsAnyCtrlKeyPressed() ||
+            args.DragButton == MySharedButtonsEnum.Secondary;
+        dragAmountRequested = false;
         if (args.DragFrom?.Grid == null) return;
         if (args.DropTo?.Grid == null)
         {
@@ -832,7 +841,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
         }
         var amount = GetAmount(args.DragFrom.Grid, args.DragFrom.ItemIndex);
         var originalItem = args.DragFrom.Grid.GetItemAt(args.DragFrom.ItemIndex)?.UserData;
-        if (args.DragButton == MySharedButtonsEnum.Secondary)
+        if (chooseAmount)
             ShowAmountDialog(amount, GetDefinition(args.DragFrom.Grid, args.DragFrom.ItemIndex), value =>
                 ExecuteTransfer(args.DragFrom.Grid, args.DragFrom.ItemIndex, args.DropTo.Grid, value, args.DropTo.ItemIndex, originalItem));
         else
