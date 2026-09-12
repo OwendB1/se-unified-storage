@@ -52,7 +52,8 @@ internal sealed partial class UnifiedTerminalController
                 ctrlClickTransfer = () => TransferOpposite(pane, grid, args.ItemIndex, amount, item);
                 return;
             }
-            if (ctrl || shift)
+            // Grab Single Item patches vanilla handlers, which these grids replace.
+            if (ctrl || shift || MyInput.Static.IsAnyAltKeyPressed())
                 TransferOpposite(pane, grid, args.ItemIndex,
                     MyFixedPoint.Min(GetAmount(grid, args.ItemIndex), (shift ? 100 : 1) * (ctrl ? 10 : 1)));
         };

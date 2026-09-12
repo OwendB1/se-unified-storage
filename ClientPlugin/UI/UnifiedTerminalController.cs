@@ -802,7 +802,7 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void StartDragging(MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
     {
-        if (MyInput.Static.IsAnyShiftKeyPressed()) return;
+        if (MyInput.Static.IsAnyShiftKeyPressed() || MyInput.Static.IsAnyAltKeyPressed()) return;
         if (args.ItemIndex < 0 || !grid.IsValidIndex(args.ItemIndex))
             return;
         var item = grid.GetItemAt(args.ItemIndex);
@@ -978,7 +978,8 @@ internal sealed partial class UnifiedTerminalController : IDisposable
 
     private void RealItemDoubleClicked(Pane sourcePane, MyGuiControlGrid grid, MyGuiControlGrid.EventArgs args)
     {
-        if (!MyInput.Static.IsAnyCtrlKeyPressed() && !MyInput.Static.IsAnyShiftKeyPressed())
+        if (!MyInput.Static.IsAnyCtrlKeyPressed() && !MyInput.Static.IsAnyShiftKeyPressed() &&
+            !MyInput.Static.IsAnyAltKeyPressed())
             TransferOpposite(sourcePane, grid, args.ItemIndex, GetAmount(grid, args.ItemIndex));
     }
 
