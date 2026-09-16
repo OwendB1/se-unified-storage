@@ -38,12 +38,17 @@ public static class InventoryGroups
         InventoryGroupRecord group, out string error, MyDefinitionId? item = null, InventoryRoleKind? role = null)
     {
         var rules = ResolveRules(scope, group, out error);
-        return rules.SelectMany(match => match.Members.Where(member =>
-                member.Roles.Any(candidate => match.Rule.AcceptsRole(candidate.Kind) &&
+        return rules.Where(match => !match.Rule.Exclude).SelectMany(match => match.Members).Distinct()
+            .Where(member => member.Roles.Any(candidate =>
                     (!role.HasValue || candidate.Kind == role.Value) &&
-                    (!item.HasValue || candidate.Accepts(item.Value) && Accepts(match.Rule, item.Value)))))
+                    (!item.HasValue || candidate.Accepts(item.Value)) && Includes(rules, member, candidate.Kind, item)))
             .GroupBy(member => member.Inventory).Select(members => members.First()).ToArray();
     }
+
+    private static bool Includes(List<(InventoryGroupRule Rule, HashSet<InventoryDescriptor> Members)> matches,
+        InventoryDescriptor member, InventoryRoleKind role, MyDefinitionId? item = null) =>
+        InventoryGroupRule.Includes(matches.Where(match => match.Members.Contains(member)).Select(match => match.Rule),
+            role, item?.TypeId.ToString(), item?.ToString());
 
     private static List<(InventoryGroupRule Rule, HashSet<InventoryDescriptor> Members)> ResolveRules(
         MechanicalInventoryScope scope, InventoryGroupRecord group, out string error)
@@ -90,7 +95,7 @@ public static class InventoryGroups
             };
 
     public static bool Accepts(InventoryGroupRecord group, MyDefinitionId item) => group == null ||
-        group.EffectiveRules.Any(rule => Accepts(rule, item));
+        group.EffectiveRules.Any(rule => !rule.Exclude && Accepts(rule, item));
 
     private static bool Accepts(InventoryGroupRule rule, MyDefinitionId item) =>
         rule.AcceptsItem(item.TypeId.ToString(), item.ToString());
@@ -102,19 +107,19 @@ public static class InventoryGroups
         foreach (var group in profile.Groups)
         {
             var matches = ResolveRules(source.Scope, group, out _);
-            bool Includes(InventoryDescriptor member, InventoryRoleKind role) =>
-                matches.Any(match => match.Members.Contains(member) && match.Rule.AcceptsRole(role));
+            bool IncludesMember(InventoryDescriptor member, InventoryRoleKind role) => Includes(matches, member, role);
             bool AcceptsMember(InventoryDescriptor member, InventoryRoleKind role, MyDefinitionId item) =>
-                matches.Any(match => match.Members.Contains(member) && match.Rule.AcceptsRole(role) && Accepts(match.Rule, item));
-            var members = new HashSet<InventoryDescriptor>(matches.SelectMany(match => match.Members));
-            var rawRoles = source.Roles.Where(role => role.Members.Any(member => Includes(member, role.Role))).ToArray();
+                Includes(matches, member, role, item);
+            var members = new HashSet<InventoryDescriptor>(matches.Where(match => !match.Rule.Exclude)
+                .SelectMany(match => match.Members).Where(member => member.Roles.Any(role => IncludesMember(member, role.Kind))));
+            var rawRoles = source.Roles.Where(role => role.Members.Any(member => IncludesMember(member, role.Role))).ToArray();
             // Unknown definitions keep their safe inventory/constraint separation by default.
-            var fallback = group.EffectiveRules.Any(rule => rule.Selector == InventoryGroupSelector.Family && rule.Family == InventorySectionKind.DefinitionFallback);
+            var fallback = group.EffectiveRules.Any(rule => !rule.Exclude && rule.Selector == InventoryGroupSelector.Family && rule.Family == InventorySectionKind.DefinitionFallback);
             var family = members.Select(member => member.Section.Kind).Distinct().ToArray();
             foreach (var bucket in rawRoles.GroupBy(role => (Section: fallback ? role.Section :
                          InventorySectionKey.Semantic(family.Length == 1 ? family[0] : InventorySectionKind.DefinitionFallback), role.Role)))
             {
-                var selected = bucket.SelectMany(role => role.Members).Where(member => Includes(member, bucket.Key.Role)).Distinct().ToArray();
+                var selected = bucket.SelectMany(role => role.Members).Where(member => IncludesMember(member, bucket.Key.Role)).Distinct().ToArray();
                 var selectedSet = new HashSet<InventoryDescriptor>(selected);
                 var stacks = new List<ProjectedInventoryStack>();
                 var seen = new HashSet<(long, int, uint)>();
@@ -158,7 +163,7 @@ public static class InventoryGroups
                 foreach (var match in matches)
                 {
                     var rule = match.Rule;
-                    parts.Add(string.Join("|", rule.Selector, rule.Family, Text(rule.Value),
+                    parts.Add(string.Join("|", rule.Exclude, rule.Selector, rule.Family, Text(rule.Value),
                         rule.AllRoles, rule.Role, Text(rule.ItemType), Text(rule.ItemDefinitionId),
                         string.Join(",", match.Members.Select(member => $"{member.OwnerEntityId}:{member.InventoryIndex}").OrderBy(v => v))));
                 }

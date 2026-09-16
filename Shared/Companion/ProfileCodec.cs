@@ -58,7 +58,7 @@ public static class ProfileCodec
 
     public static void Validate(ScopeProfile profile)
     {
-        if (profile == null || (profile.GroupSchemaVersion != 1 && profile.GroupSchemaVersion != InventoryGroupRecord.SchemaVersion) || !Defined(profile.Policy) ||
+        if (profile == null || profile.GroupSchemaVersion < 1 || profile.GroupSchemaVersion > InventoryGroupRecord.SchemaVersion || !Defined(profile.Policy) ||
             profile.ComponentStartThreshold < 0 || profile.ComponentStartThreshold > 1 ||
             profile.Groups == null || profile.Groups.Count > 128 ||
             profile.Loadouts == null || profile.Loadouts.Count > 256 ||
@@ -75,7 +75,8 @@ public static class ProfileCodec
                 throw new InvalidDataException("Invalid or duplicate inventory group.");
             foreach (var rule in group.EffectiveRules)
                 if (rule == null || !Text(rule.Value, 512) || !Text(rule.ItemType, 256) || !Text(rule.ItemDefinitionId, 512) ||
-                    !Defined(rule.Selector) || !Defined(rule.Family) || !Defined(rule.Role))
+                    !Defined(rule.Selector) || !Defined(rule.Family) || !Defined(rule.Role) ||
+                    rule.Exclude && profile.GroupSchemaVersion < 3)
                     throw new InvalidDataException("Invalid inventory group rule.");
         }
         foreach (var target in profile.ComponentTargets)

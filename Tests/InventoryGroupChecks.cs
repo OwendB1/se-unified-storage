@@ -61,6 +61,55 @@ internal static class InventoryGroupChecks
         var roundTrip = ProfileCodec.Clone(legacy);
         ProfileCodec.Validate(roundTrip);
         Check(roundTrip.Groups[0].Rules.Count == 2 && roundTrip.Groups[0].Rules[1].Role == InventoryRoleKind.Fuel, "Multi-rule round trip");
+        var schemaTwo = ProfileCodec.Clone(roundTrip);
+        schemaTwo.GroupSchemaVersion = 2;
+        ProfileCodec.Validate(schemaTwo);
+        InventoryGroupRecord.Migrate(schemaTwo);
+        Check(schemaTwo.GroupSchemaVersion == InventoryGroupRecord.SchemaVersion &&
+            schemaTwo.Groups[0].Rules.Count == 2 && schemaTwo.Groups[0].Rules.All(rule => !rule.Exclude),
+            "Schema 2 migration must preserve include rules");
+        var excluded = new InventoryGroupRule { Exclude = true, Selector = InventoryGroupSelector.BlockDefinition,
+            Value = "MyObjectBuilder_Refinery/ShieldGenerator" };
+        draft.Rules.Add(excluded);
+        roundTrip = ProfileCodec.Clone(legacy);
+        ProfileCodec.Validate(roundTrip);
+        Check(roundTrip.Groups[0].Rules[2].Exclude && roundTrip.Groups[0].Rules[2].Value == excluded.Value,
+            "Definition exclusion XML round trip");
+        var exclusionDraft = draft.Copy();
+        exclusionDraft.Rules[2].Exclude = false;
+        Check(draft.Rules[2].Exclude, "Draft edits must not change saved exclusions");
+        schemaTwo.Groups[0].Rules.Add(excluded.CopyRule());
+        schemaTwo.GroupSchemaVersion = 2;
+        Invalid(schemaTwo); // Exclusions cannot masquerade as the older include-only schema.
+
+        var include = new InventoryGroupRule { Selector = InventoryGroupSelector.Family, Family = InventorySectionKind.Refineries };
+        var matching = new[] { include, excluded };
+        Check(!InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput) &&
+            !InventoryGroupRule.Includes(matching.Reverse(), InventoryRoleKind.ProductionInput),
+            "Exclusions override family includes regardless of row order");
+        Check(InventoryGroupRule.Includes(new[] { include, include.CopyRule() }, InventoryRoleKind.ProductionInput),
+            "Overlapping include rules still include a normal refinery");
+        Check(!InventoryGroupRule.Includes(new[] { excluded }, InventoryRoleKind.ProductionInput) &&
+            !InventoryGroupRule.Includes(Array.Empty<InventoryGroupRule>(), InventoryRoleKind.ProductionInput),
+            "Exclusion-only and empty groups must match nothing");
+        var roleExclusion = excluded.CopyRule();
+        roleExclusion.AllRoles = false;
+        roleExclusion.Role = InventoryRoleKind.ProductionInput;
+        matching = new[] { include, roleExclusion };
+        Check(!InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput) &&
+            InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionOutput), "Role exclusions preserve other roles");
+        roleExclusion.ItemType = "MyObjectBuilder_Ore";
+        roleExclusion.ItemDefinitionId = "MyObjectBuilder_Ore/Iron";
+        Check(InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput),
+            "Item exclusions must retain inventory membership for other materials");
+        Check(!InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput, "MyObjectBuilder_Ore", "MyObjectBuilder_Ore/Iron") &&
+            InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput, "MyObjectBuilder_Ore", "MyObjectBuilder_Ore/Nickel") &&
+            InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionOutput, "MyObjectBuilder_Ore", "MyObjectBuilder_Ore/Iron"),
+            "Item exclusions must keep their role, category and exact-item filters together");
+        roleExclusion.ItemDefinitionId = string.Empty;
+        Check(!InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput, "MyObjectBuilder_Ore", "MyObjectBuilder_Ore/Nickel") &&
+            InventoryGroupRule.Includes(matching, InventoryRoleKind.ProductionInput, "MyObjectBuilder_Ingot", "MyObjectBuilder_Ingot/Iron"),
+            "Category exclusions must preserve other categories");
         var selection = new InventorySelection { AnchorId = 10, Group = draft.Copy(), Role = InventoryRoleKind.Ammunition };
         var intent = new TransferIntent
         {
@@ -69,12 +118,14 @@ internal static class InventoryGroupChecks
         };
         intent = ProfileCodec.Decode<TransferIntent>(ProfileCodec.Encode(intent));
         intent.Validate();
-        Check(intent.Source.Group.Rules.Count == 2 && intent.Destination.Group.Rules[1].Role == InventoryRoleKind.Fuel,
+        Check(intent.Source.Group.Rules.Count == 3 && intent.Destination.Group.Rules[1].Role == InventoryRoleKind.Fuel &&
+            intent.Source.Group.Rules[2].Exclude && intent.Destination.Group.Rules[2].Exclude,
             "Transfer intent must preserve complete rule rows");
         var action = new ShipActionIntent { Action = ShipAction.Rebalance, Settings = roundTrip, Selections = new() { selection } };
         action = ProfileCodec.Decode<ShipActionIntent>(ProfileCodec.Encode(action));
         action.Validate();
-        Check(action.Selections[0].Group.Rules.Count == 2, "Action selection rule-list round trip");
+        Check(action.Selections[0].Group.Rules.Count == 3 && action.Selections[0].Group.Rules[2].Exclude,
+            "Action selection exclusions round trip");
         // New server must still understand a legacy client's single-selector intent.
         intent.Source.Group = intent.Destination.Group = new() { Selector = InventoryGroupSelector.Family, Family = InventorySectionKind.Weapons };
         ProfileCodec.Decode<TransferIntent>(ProfileCodec.Encode(intent)).Validate();
@@ -104,6 +155,6 @@ internal static class InventoryGroupChecks
         Invalid(defaults);
         ProfileCodec.ValidateGroup(new InventoryGroupRecord { Selector = InventoryGroupSelector.Family, Family = InventorySectionKind.Weapons });
         ProfileCodec.ValidateGroup(draft);
-        Console.WriteLine("Inventory group migration, drafts, XML, filters and bounds passed.");
+        Console.WriteLine("Inventory group migration, drafts, XML, exclusions, filters and bounds passed.");
     }
 }

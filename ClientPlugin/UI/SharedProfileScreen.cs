@@ -138,9 +138,9 @@ internal sealed class SharedProfileScreen : UnifiedStorageScreen
         text.AppendLine("\nInventory groups (selectors, not stored membership):");
         foreach (var group in value.Groups)
         {
-            text.AppendLine($"{group.Name} [{group.Id}] (match any rule):");
+            text.AppendLine($"{group.Name} [{group.Id}] (include any; exclusions override):");
             foreach (var rule in group.EffectiveRules)
-                text.AppendLine($"  {rule.Selector} {rule.Family} {rule.Value}; role: {(rule.AllRoles ? "all" : rule.Role.ToString())}; items: {rule.ItemType} {rule.ItemDefinitionId}");
+                text.AppendLine($"  {(rule.Exclude ? "Exclude" : "Include")} {rule.Selector} {rule.Family} {rule.Value}; role: {(rule.AllRoles ? "all" : rule.Role.ToString())}; items: {rule.ItemType} {rule.ItemDefinitionId}");
         }
         text.AppendLine("\nLoadouts:");
         foreach (var rule in value.Loadouts)

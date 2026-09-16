@@ -10,9 +10,10 @@ public enum InventoryGroupSelector
     All, Family, BlockType, BlockDefinition, TerminalGroup, Block, RecipeOutput
 }
 
-// Each row is a conjunction; a group is the union of its rows.
+// Each row is a conjunction; exclusions take precedence over the union of include rows.
 public class InventoryGroupRule
 {
+    public bool Exclude { get; set; }
     public InventoryGroupSelector Selector { get; set; } = InventoryGroupSelector.All;
     public InventorySectionKind Family { get; set; }
     public string Value { get; set; } = string.Empty;
@@ -23,7 +24,7 @@ public class InventoryGroupRule
 
     public InventoryGroupRule CopyRule() => new()
     {
-        Selector = Selector, Family = Family, Value = Value, AllRoles = AllRoles,
+        Exclude = Exclude, Selector = Selector, Family = Family, Value = Value, AllRoles = AllRoles,
         Role = Role, ItemType = ItemType, ItemDefinitionId = ItemDefinitionId
     };
 
@@ -32,12 +33,29 @@ public class InventoryGroupRule
         (string.IsNullOrEmpty(ItemDefinitionId) || ItemDefinitionId == definition);
 
     public bool AcceptsRole(InventoryRoleKind role) => AllRoles || Role == role;
+
+    // Call with rules whose block selectors match. Without an item, only whole-role exclusions
+    // remove membership: excluding one material must leave other materials accessible.
+    public static bool Includes(IEnumerable<InventoryGroupRule> matchingRules, InventoryRoleKind role,
+        string itemType = null, string itemDefinition = null)
+    {
+        var included = false;
+        foreach (var rule in matchingRules)
+        {
+            if (!rule.AcceptsRole(role)) continue;
+            if (itemType != null ? !rule.AcceptsItem(itemType, itemDefinition) :
+                rule.Exclude && (!string.IsNullOrEmpty(rule.ItemType) || !string.IsNullOrEmpty(rule.ItemDefinitionId))) continue;
+            if (rule.Exclude) return false;
+            included = true;
+        }
+        return included;
+    }
 }
 
 // Inherited fields only read legacy profiles/intents. Rules persist intent, never resolved membership.
 public sealed class InventoryGroupRecord : InventoryGroupRule
 {
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
     public const int MaxRules = 128;
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "New group";

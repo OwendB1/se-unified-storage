@@ -188,18 +188,20 @@ internal sealed class InventoryGroupEditor : InventoryRuleEditor
         table = new MultiSelectTable
         {
             Name = "InventoryGroupRules", Position = new Vector2(-0.36f, -0.25f), Size = new Vector2(0.72f, 0.4f),
-            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP, ColumnsCount = 4, VisibleRowsCount = 12
+            OriginAlign = MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_TOP, ColumnsCount = 5, VisibleRowsCount = 10
         };
-        table.SetCustomColumnWidths(new[] { 0.19f, 0.32f, 0.19f, 0.30f });
-        table.SetColumnName(0, new StringBuilder("Match by"));
-        table.SetColumnName(1, new StringBuilder("Definition / type"));
-        table.SetColumnName(2, new StringBuilder("Inventory role"));
-        table.SetColumnName(3, new StringBuilder("Items"));
+        table.SetCustomColumnWidths(new[] { 0.12f, 0.19f, 0.27f, 0.18f, 0.24f });
+        table.SetColumnName(0, new StringBuilder("Action"));
+        table.SetColumnName(1, new StringBuilder("Match by"));
+        table.SetColumnName(2, new StringBuilder("Definition / type"));
+        table.SetColumnName(3, new StringBuilder("Inventory role"));
+        table.SetColumnName(4, new StringBuilder("Items"));
         foreach (var rule in record.Rules)
         {
             var row = new MyGuiControlTable.Row(rule);
             MyGuiControlTable.Cell Cell(string text, string detail = null) => new(text,
                 toolTip: UnifiedStorageHelp.Wrap(detail == null ? text : text + "\n" + detail)) { IsAutoScaleEnabled = true };
+            row.AddCell(Cell(rule.Exclude ? "Exclude" : "Include"));
             row.AddCell(Cell(InventoryGroupRuleEditor.SelectorNames[(int)rule.Selector]));
             row.AddCell(Cell(InventoryGroupRuleEditor.SelectionLabel(session, rule), rule.Value));
             row.AddCell(Cell(rule.AllRoles ? "All roles" : Friendly(rule.Role.ToString())));
@@ -210,31 +212,34 @@ internal sealed class InventoryGroupEditor : InventoryRuleEditor
         }
         Controls.Add(table);
         table.SetToolTip(UnifiedStorageHelp.Wrap(MultiSelectTable.SelectionHelp +
-            " Each row combines its block, role and item filters. Rows are alternatives (OR); matching inventories and stacks are counted once. All edits remain drafts until Apply below."));
+            " Include rows are alternatives; exclusions override them in this group only. Each row combines its block, role and item filters. Overlaps count once. All edits remain drafts until Apply below."));
         table.RestoreSelection(Enumerable.Range(0, table.RowsCount).Where(index => selected.Contains(record.Rules[index])));
         var status = InventoryGroups.Resolve(session.Refresh().Scope, record, out var error);
-        var statusText = error ?? (record.Rules.Count == 0 ? "No rules: this group matches nothing." :
-            $"{record.Rules.Count} rules (OR); {status.Count} matching inventories. Apply saves all edits.");
-        var statusLabel = new MyGuiControlLabel(new Vector2(-0.36f, 0.22f), text: statusText, textScale: 0.7f,
+        var statusText = error ?? (!record.Rules.Any(rule => !rule.Exclude) ? "No include rules: this group matches nothing." :
+            $"{record.Rules.Count(rule => !rule.Exclude)} include rules; {record.Rules.Count(rule => rule.Exclude)} exclusions; {status.Count} matching inventories.");
+        var statusLabel = new MyGuiControlLabel(new Vector2(-0.36f, 0.15f), text: statusText, textScale: 0.7f,
             originAlign: MyGuiDrawAlignEnum.HORISONTAL_LEFT_AND_VERTICAL_CENTER,
             isAutoEllipsisEnabled: true, maxWidth: 0.72f);
         statusLabel.SetToolTip(UnifiedStorageHelp.Wrap(statusText));
         Controls.Add(statusLabel);
-        var add = Button("Add rule", new Vector2(-0.285f, 0.275f), () => Edit(null), 0.15f);
+        var add = Button("Add rule", new Vector2(-0.24f, 0.215f), () => Edit(null));
         add.Enabled = record.Rules.Count < InventoryGroupRecord.MaxRules;
         Controls.Add(add);
-        var edit = Button("Edit rule", new Vector2(-0.095f, 0.275f), () =>
-        { if (SelectedRules.Count() == 1) Edit(SelectedRules.Single()); }, 0.15f);
-        var duplicate = Button("Duplicate", new Vector2(0.095f, 0.275f), () =>
+        var exclude = Button("Add exclusion", new Vector2(0, 0.215f), () => Edit(null, true));
+        exclude.Enabled = add.Enabled;
+        Controls.Add(exclude);
+        var edit = Button("Edit rule", new Vector2(0.24f, 0.215f), () =>
+        { if (SelectedRules.Count() == 1) Edit(SelectedRules.Single()); });
+        var duplicate = Button("Duplicate", new Vector2(-0.12f, 0.275f), () =>
         {
             record.Rules.AddRange(SelectedRules.Select(rule => rule.CopyRule()).ToArray());
             RecreateControls(false);
-        }, 0.15f);
-        var remove = Button("Remove", new Vector2(0.285f, 0.275f), () =>
+        });
+        var remove = Button("Remove", new Vector2(0.12f, 0.275f), () =>
         {
             foreach (var rule in SelectedRules.ToArray()) record.Rules.Remove(rule);
             RecreateControls(false);
-        }, 0.15f);
+        });
         Controls.Add(edit); Controls.Add(duplicate); Controls.Add(remove);
         void SelectionChanged()
         {
@@ -259,7 +264,8 @@ internal sealed class InventoryGroupEditor : InventoryRuleEditor
     private IEnumerable<InventoryGroupRule> SelectedRules => table?.SelectedRows.Select(row => (InventoryGroupRule)row.UserData)
         ?? Enumerable.Empty<InventoryGroupRule>();
 
-    private void Edit(InventoryGroupRule rule) => MyGuiSandbox.AddScreen(new InventoryGroupRuleEditor(session, rule, value =>
+    private void Edit(InventoryGroupRule rule, bool exclude = false) => MyGuiSandbox.AddScreen(new InventoryGroupRuleEditor(session,
+        rule ?? new InventoryGroupRule { Exclude = exclude, Selector = exclude ? InventoryGroupSelector.BlockDefinition : InventoryGroupSelector.All }, value =>
     {
         var index = rule == null ? -1 : record.Rules.IndexOf(rule);
         if (index < 0) record.Rules.Add(value); else record.Rules[index] = value;
@@ -275,7 +281,7 @@ internal sealed class InventoryGroupRuleEditor : InventoryRuleEditor
     private readonly MechanicalInventorySession session;
     private readonly InventoryGroupRule record;
     private readonly Action<InventoryGroupRule> save;
-    private MyGuiControlCombobox selector, value, role, itemType, item;
+    private MyGuiControlCombobox action, selector, value, role, itemType, item;
     private List<string> values;
     private List<string> itemTypes;
     private List<MyDefinitionId> items;
@@ -289,7 +295,8 @@ internal sealed class InventoryGroupRuleEditor : InventoryRuleEditor
     }
     protected override void CreateControls()
     {
-        Controls.Add(Label("One rule: all selected conditions must match together.", new Vector2(-0.36f, -0.27f)));
+        action = Combo("GroupRuleAction", "Rule action", -0.36f, -0.25f, 0.72f,
+            new[] { "Include in this group", "Exclude from this group" }, record.Exclude ? 1 : 0);
         selector = Combo("GroupSelector", "Select blocks by", -0.36f, -0.12f, 0.22f,
             SelectorNames, (int)record.Selector);
         value = Combo("GroupValue", "Selection (resolved on this ship)", -0.12f, -0.12f, 0.48f, Array.Empty<string>());
@@ -305,18 +312,24 @@ internal sealed class InventoryGroupRuleEditor : InventoryRuleEditor
             itemTypes.Select(v => v.Length == 0 ? "All item categories" : v.Replace("MyObjectBuilder_", "")), itemTypes.IndexOf(record.ItemType ?? ""));
         item = Combo("GroupMaterial", "Exact material / item (optional)", -0.36f, 0.12f, 0.72f,
             new[] { "All items" }.Concat(items.Select(Display)), items.FindIndex(id => id.ToString() == record.ItemDefinitionId) + 1);
-        Controls.Add(Label("Block selection, role and item filters are combined. Live constraints still apply.", new Vector2(-0.36f, 0.22f)));
-        Controls.Add(Label("Terminal group names are saved; members are never frozen into block IDs.", new Vector2(-0.36f, 0.26f)));
-        Controls.Add(Button("Save rule", new Vector2(-0.12f, 0.34f), Apply));
+        Controls.Add(Label("All conditions must match. Exclusions override includes in this group only.", new Vector2(-0.36f, 0.22f)));
+        Controls.Add(Label("Use All roles and All items to exclude an entire block definition.", new Vector2(-0.36f, 0.26f)));
+        var apply = Button("Save rule", new Vector2(-0.12f, 0.34f), Apply);
+        Controls.Add(apply);
         Controls.Add(Button("Cancel", new Vector2(0.12f, 0.34f), () => CloseScreen()));
         RefreshValues(); selector.ItemSelected += RefreshValues;
+        void UpdateApply() => apply.Enabled = HasSelection();
+        value.ItemSelected += UpdateApply;
+        selector.ItemSelected += UpdateApply;
+        UpdateApply();
     }
     private void RefreshValues()
     {
         var kind = (InventoryGroupSelector)selector.GetSelectedKey();
         var labels = SelectionLabels(session, kind);
         var saved = kind == InventoryGroupSelector.Family ? record.Family.ToString() : record.Value ?? "";
-        if (kind == record.Selector && !labels.ContainsKey(saved)) labels[saved] = saved + " (not found)";
+        if (kind == record.Selector && !labels.ContainsKey(saved))
+            labels[saved] = string.IsNullOrEmpty(saved) ? "Choose a selection..." : saved + " (not found)";
         values = labels.OrderBy(pair => pair.Value, StringComparer.CurrentCultureIgnoreCase).Select(pair => pair.Key).ToList();
         value.ClearItems();
         for (var i = 0; i < values.Count; i++) value.AddItem(i, labels[values[i]]);
@@ -359,9 +372,14 @@ internal sealed class InventoryGroupRuleEditor : InventoryRuleEditor
         }
         return labels;
     }
+    private bool HasSelection() => value.GetSelectedKey() >= 0 &&
+        ((InventoryGroupSelector)selector.GetSelectedKey() == InventoryGroupSelector.All ||
+         !string.IsNullOrWhiteSpace(values[(int)value.GetSelectedKey()]));
+
     private void Apply()
     {
-        if (value.GetSelectedKey() < 0) return;
+        if (!HasSelection()) return;
+        record.Exclude = action.GetSelectedKey() == 1;
         record.Selector = (InventoryGroupSelector)selector.GetSelectedKey();
         record.Value = values[(int)value.GetSelectedKey()];
         if (record.Selector == InventoryGroupSelector.Family) record.Family = (InventorySectionKind)Enum.Parse(typeof(InventorySectionKind), record.Value);

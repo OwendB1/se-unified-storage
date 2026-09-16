@@ -95,9 +95,10 @@ public sealed partial class CompanionClient : IDisposable
                 helloId = Guid.Empty;
                 if (epoch != Guid.Empty && epoch != message.Epoch) FinishUnknown();
                 epoch = message.Epoch; Capabilities = message.Capabilities;
-                // Older companions would ignore Rules in selections. Keep coordination/status/cancel,
+                // Older companions would ignore rule exclusions. Keep coordination/status/cancel,
                 // but use standalone transfers and disable profile exchange until the server is updated.
-                if ((Capabilities & CompanionCapabilities.GroupRules) == 0)
+                if ((Capabilities & (CompanionCapabilities.GroupRules | CompanionCapabilities.GroupExclusions)) !=
+                    (CompanionCapabilities.GroupRules | CompanionCapabilities.GroupExclusions))
                     Capabilities &= CompanionCapabilities.Coordination;
                 if ((message.Capabilities & CompanionCapabilities.Coordination) != 0 || message.Body.Length != 0)
                 {
@@ -139,7 +140,7 @@ public sealed partial class CompanionClient : IDisposable
     {
         var required = kind == MessageKind.Transfer ? CompanionCapabilities.Transfers :
             kind == MessageKind.Action || kind == MessageKind.JobStatus || kind == MessageKind.CancelJob || kind == MessageKind.AutomationStatus ? CompanionCapabilities.Coordination : CompanionCapabilities.SharedProfiles;
-        if (kind == MessageKind.Action) required |= CompanionCapabilities.GroupRules;
+        if (kind == MessageKind.Action) required |= CompanionCapabilities.GroupRules | CompanionCapabilities.GroupExclusions;
         if (!Supports(required) || pending != null || profileSequence && !sendingProfilePage || transport == null || completed == null) return false;
         var now = Stopwatch.GetTimestamp();
         var message = new CompanionMessage
